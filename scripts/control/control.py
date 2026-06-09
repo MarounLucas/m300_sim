@@ -91,10 +91,9 @@ class CascadeController:
         self.kp_att = np.array([4.0, 4.0, 2.5])
         
         # ===== Ganhos: Velocidade XY (PID) ===== #
-        # Aumentamos o P para rigidez, zeramos o I para evitar windup, dobramos o D para frear
-        self.kp_xy_vel = np.array([1.2, 1.2]) 
-        self.ki_xy_vel = np.array([0.01, 0.01]) # Praticamente zero
-        self.kd_xy_vel = np.array([0.25, 0.25])
+        self.kp_xy_vel = np.array([2.0, 2.0]) 
+        self.ki_xy_vel = np.array([0.15, 0.15]) # Praticamente zero
+        self.kd_xy_vel = np.array([0.05, 0.05])
         
         # ===== Ganhos: Velocidade Z (PID) ===== #
         self.kp_z_vel = 2.0
