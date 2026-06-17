@@ -34,8 +34,8 @@ def generate_launch_description():
 
     record_bag = ExecuteProcess(
         cmd=['ros2', 'bag', 'record', 
-             '/drone_simulator/telemetry_topic', 
-             '/drone_simulator/trajectory_topic', 
+             '/m300_sim/telemetry_topic', 
+             '/m300_sim/trajectory_topic', 
              '-o', bag_path],
         output='screen'
     )
