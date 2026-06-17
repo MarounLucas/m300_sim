@@ -35,7 +35,7 @@ def process_bag(bag_path: str):
             msg = typestore.deserialize_cdr(rawdata, connection.msgtype)
             time_sec = timestamp / 1e9 
             
-            if connection.topic == '/drone_simulator/telemetry_topic':
+            if connection.topic == '/m300_sim/telemetry_topic':
                 telemetry_data['time'].append(time_sec)
                 telemetry_data['x'].append(msg.pose.pose.position.x)
                 telemetry_data['y'].append(msg.pose.pose.position.y)
@@ -50,7 +50,7 @@ def process_bag(bag_path: str):
                 telemetry_data['pitch'].append(p)
                 telemetry_data['yaw'].append(y)
 
-            elif connection.topic == '/drone_simulator/trajectory_topic':
+            elif connection.topic == '/m300_sim/trajectory_topic':
                 trajectory_data['time'].append(time_sec)
                 trajectory_data['x_ref'].append(msg.pose.pose.position.x)
                 trajectory_data['y_ref'].append(msg.pose.pose.position.y)
