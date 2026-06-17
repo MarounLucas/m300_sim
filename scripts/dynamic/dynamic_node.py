@@ -6,7 +6,7 @@ import math
 from scipy.spatial.transform import Rotation
 
 from nav_msgs.msg import Odometry
-from std_msgs.msg import Float64MultiArray
+from geometry_msgs.msg import WrenchStamped
 
 from .mixer import Mixer
 from .quadcopter_model import six_dof_model
@@ -110,15 +110,21 @@ class DynamicNode(Node):
         self.dt = 1/1000
         self.tick_count = 0
 
-        self.dyn_pub = self.create_publisher(Odometry,'/drone_simulator/telemetry_topic', 10)
+        self.dyn_pub = self.create_publisher(Odometry,'/m300_sim/telemetry_topic', 10)
         self.get_logger().info(f'Telemetry Publisher Iniciado')
 
-        self.ctrl_sub = self.create_subscription(Float64MultiArray, '/drone_simulator/control_topic', self.cmd_callback, 10)
+        self.ctrl_sub = self.create_subscription(WrenchStamped, '/m300_sim/control_topic', self.cmd_callback, 10)
         self.create_timer(self.dt, self.physics_loop)
 
 
-    def cmd_callback(self, msg:Float64MultiArray):
-        self.u_virtual = np.array(msg.data)
+    def cmd_callback(self, msg:WrenchStamped):
+        force_z = msg.wrench.force.z
+        torque_x = msg.wrench.torque.x
+        torque_y = msg.wrench.torque.y
+        torque_z = msg.wrench.torque.z
+
+
+        self.u_virtual = np.array([force_z, torque_x, torque_y, torque_z])
         
 
     def physics_loop(self):

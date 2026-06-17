@@ -3,7 +3,6 @@ from rclpy.node import Node
 from scipy.spatial.transform import Rotation
 import numpy as np
 
-from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Odometry
 
 from .trajectory import PathManager
@@ -31,9 +30,9 @@ class TrajectoryNode(Node):
         self.wp_tolerance = 0.5
         self.dt = 1/100
 
-        self.traj_pub = self.create_publisher(Odometry, '/drone_simulator/trajectory_topic', 10)
+        self.traj_pub = self.create_publisher(Odometry, '/m300_sim/trajectory_topic', 10)
         
-        self.state_sub = self.create_subscription(Odometry, '/drone_simulator/telemetry_topic', self.pose_callback, 10)
+        self.state_sub = self.create_subscription(Odometry, '/m300_sim/telemetry_topic', self.pose_callback, 10)
 
         self.create_timer(self.dt, self.traj_callback)
 
