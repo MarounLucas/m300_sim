@@ -32,6 +32,7 @@ setup(
             'traj_pub = scripts.trajectory.trajectory_node:main',
             'ctrl_sub = scripts.control.control_node:main',
             'dyn_pub = scripts.dynamic.dynamic_node:main',
+            'joy_sub = scripts.manual_sim.joy_mapper:main'
         ],
     },
 )
