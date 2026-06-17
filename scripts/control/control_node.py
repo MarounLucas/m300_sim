@@ -7,120 +7,21 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 import threading
 
-from geometry_msgs.msg import PoseStamped
-from std_msgs.msg import Float64MultiArray
+from geometry_msgs.msg import TwistStamped, WrenchStamped
+from m300_msgs.msg import FlightMode
 from nav_msgs.msg import Odometry
 
 from .control import CascadeController
 
-class TickController(Node):
-    def __init__(self):
-        super().__init__("controller_node")
-        # Declarar os parâmetros necessários para o controle
-        self.declare_parameters(
-            namespace='',
-            parameters=[
-                ('mass', 6.47),
-                ('max_ascent_speed', -6.0),
-                ('max_descent_speed', 5.0),
-                ('cruise_speed', 9.2),
-                ('max_tilt_angle', 0.523),
-                ('max_roll_pitch_rate', 5.23),
-                ('max_yaw_rate', 1.74)
-            ]
-        )
-
-        # Criar um objeto Dummy temporário para não quebrar a assinatura da classe CascadeController
-        class DummyModel: pass
-        ac_model = DummyModel()
-        ac_model.mass = self.get_parameter('mass').value
-        ac_model.max_ascent_speed = self.get_parameter('max_ascent_speed').value
-        ac_model.max_descent_speed = self.get_parameter('max_descent_speed').value
-        ac_model.cruise_speed = self.get_parameter('cruise_speed').value
-        ac_model.max_tilt_angle = self.get_parameter('max_tilt_angle').value
-        ac_model.max_roll_pitch_rate = self.get_parameter('max_roll_pitch_rate').value
-        ac_model.max_yaw_rate = self.get_parameter('max_yaw_rate').value
-
-        # Instanciar o controlador com os dados do YAML
-        self.controller = CascadeController(ac_model)
-
-        self.ctrl_pub = self.create_publisher(Float64MultiArray, '/drone_simulator/control_topic', 10)
-
-        self.traj_sub = self.create_subscription(PoseStamped, '/drone_simulator/trajectory_topic', 
-                                            self.trajectory_callback, 10)
-        
-        self.dyn_sub = self.create_subscription(Odometry, '/drone_simulator/telemetry_topic', 
-                                                self.state_callback, 10)
-
-
-        self.get_logger().info(f'Initializing controller publisher')
-
-        self.pos_x, self.pos_y, self.pos_z = 0.0, 0.0, 0.0
-        self.yaw = 0.0
-
-        self.state = np.zeros(12)
-
-        self.tick = 0
-
-
-    def state_callback(self, msg:Odometry):
-        px = msg.pose.pose.position.x
-        py = msg.pose.pose.position.y
-        pz = msg.pose.pose.position.z
-        self.state[9:12] = px, py, pz
-
-        qx = msg.pose.pose.orientation.x 
-        qy = msg.pose.pose.orientation.y 
-        qz = msg.pose.pose.orientation.z 
-        qw = msg.pose.pose.orientation.w 
-
-        rot = Rotation.from_quat([qx, qy, qz, qw])
-        roll, pitch, yaw = rot.as_euler('xyz')
-        self.state[6:9] = roll, pitch, yaw
-
-        u = msg.twist.twist.linear.x
-        v = msg.twist.twist.linear.y
-        w = msg.twist.twist.linear.z
-        self.state[0:3] = u, v, w
-
-        p = msg.twist.twist.angular.x
-        q = msg.twist.twist.angular.y
-        r = msg.twist.twist.angular.z
-        self.state[3:6] = p, q, r
-
-        self.controller.update_state(self.state)
-
-        u_total, tau = self.controller.control_px4(self.tick)
-
-        ctrl_msg = Float64MultiArray()
-        ctrl_msg.data = [float(u_total), float(tau[0]), float(tau[1]), float(tau[2])]
-
-        self.ctrl_pub.publish(ctrl_msg)
-
-
-        self.tick += 1
-
-    def trajectory_callback(self, msg:PoseStamped):
-        self.pos_x = msg.pose.position.x
-        self.pos_y = msg.pose.position.y
-        self.pos_z = msg.pose.position.z
-
-        quat_x = msg.pose.orientation.x
-        quat_y = msg.pose.orientation.y
-        quat_z = msg.pose.orientation.z
-        quat_w = msg.pose.orientation.w
-        
-        rot = Rotation.from_quat([quat_x, quat_y, quat_z, quat_w])
-
-        roll, pitch, self.yaw = rot.as_euler('xyz')
-
-        waypoint = np.array([self.pos_x, self.pos_y, self.pos_z, self.yaw])
-        self.controller.desired_state(waypoint)
 
 
 class Controller(Node):
     def __init__(self):
         super().__init__("controller_node")
+
+        self.current_fmd = FlightMode.AUTO
+        self.manual_cmd = [0.0, 0.0, 0.0, 0.0]
+        
         # Declarar os parâmetros necessários para o controle
         self.declare_parameters(
             namespace='',
@@ -165,14 +66,23 @@ class Controller(Node):
 
         # ==== Subscribers ==== #
         # Trajectory
-        self.traj_sub = self.create_subscription(Odometry, '/drone_simulator/trajectory_topic', 
+        self.traj_sub = self.create_subscription(Odometry, '/m300_sim/trajectory_topic', 
                                             self.trajectory_callback, 10, callback_group=self.cb_groups_subs)
         # Dynamic
-        self.dyn_sub = self.create_subscription(Odometry, '/drone_simulator/telemetry_topic', 
+        self.dyn_sub = self.create_subscription(Odometry, '/m300_sim/telemetry_topic', 
                                                 self.state_callback, 10, callback_group=self.cb_groups_subs)
         
+        self.fmd_sub = self.create_subscription(FlightMode, "/m300_sim/flight_mode", self.fmd_callback, 10)
+
+        self.cmd_sub = self.create_subscription(TwistStamped, "/m300_sim/manual_cmd", self.cmd_callback, 10)
+        
+
+
+        
         # ==== Publisher ==== #
-        self.ctrl_pub = self.create_publisher(Float64MultiArray, '/drone_simulator/control_topic', 10)
+        self.ctrl_pub = self.create_publisher(WrenchStamped, '/m300_sim/control_topic', 10)
+
+        
 
 
         # ==== Timers ==== #
@@ -183,8 +93,26 @@ class Controller(Node):
 
     def loop_50hz(self):
         with self.lock:
-            self.controller._xy_pos_control()
-            self.controller._z_pos_control()
+            if self.current_fmd == FlightMode.AUTO:
+                self.controller._xy_pos_control()
+                self.controller._z_pos_control()
+            
+            elif self.current_fmd == FlightMode.MANUAL:
+                x_cmd = self.manual_cmd[0]
+                y_cmd = self.manual_cmd[1]
+                z_cmd = self.manual_cmd[2]
+                yaw_cmd = self.manual_cmd[3]
+
+
+                self.controller.des_velocity[0] = x_cmd * 1.5
+                self.controller.des_velocity[1] = y_cmd * 1.5
+
+                if z_cmd > 0:
+                    self.controller.des_velocity[2] = z_cmd * 0.5
+                else:
+                    self.controller.des_velocity[2] = z_cmd * 1.5
+
+                self.controller.des_angles[2] += (yaw_cmd * 0.5) * (1/50)
             
             self.controller._xy_vel_control(dt=1/50)
             self.controller._z_vel_control(dt=1/50)
@@ -199,10 +127,17 @@ class Controller(Node):
         with self.lock:
             self.tau = self.controller._angular_rate_control(dt=1/1000)
 
-            ctrl_msg = Float64MultiArray()
-            ctrl_msg.data = [float(self.u_total), float(self.tau[0]), float(self.tau[1]), float(self.tau[2])]
+            ctrl_msg = WrenchStamped()
+            ctrl_msg.header.stamp = self.get_clock().now().to_msg()
+            ctrl_msg.header.frame_id = 'base_link'
 
-        self.ctrl_pub.publish(ctrl_msg)
+            ctrl_msg.wrench.force.z = float(self.u_total)
+            ctrl_msg.wrench.torque.x = float(self.tau[0])
+            ctrl_msg.wrench.torque.y = float(self.tau[1])
+            ctrl_msg.wrench.torque.z = float(self.tau[2])
+
+            self.ctrl_pub.publish(ctrl_msg)
+
         
     def state_callback(self, msg:Odometry):
         px = msg.pose.pose.position.x
@@ -232,7 +167,6 @@ class Controller(Node):
         with self.lock:
             self.controller.update_state(self.state)
        
-
     def trajectory_callback(self, msg:Odometry):
         self.pos_x = msg.pose.pose.position.x
         self.pos_y = msg.pose.pose.position.y
@@ -257,7 +191,19 @@ class Controller(Node):
         with self.lock:
             self.controller.desired_state(waypoint, vel)
 
+    def cmd_callback(self, msg:TwistStamped):
+        u_vel = msg.twist.linear.x
+        v_vel = msg.twist.linear.y
+        w_vel = msg.twist.linear.z
 
+        yaw = msg.twist.angular.z
+
+        self.manual_cmd[0:4] = u_vel, v_vel, w_vel, yaw
+
+
+    def fmd_callback(self, msg:FlightMode):
+        if self.current_fmd != msg.mode:
+            self.current_fmd = msg.mode
         
     
 
