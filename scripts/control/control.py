@@ -72,7 +72,7 @@ class CascadeController:
         self.rate_int_error = np.zeros(3)
         self.xy_vel_int_error = np.zeros(2)
         self.z_vel_int_error = 0.0
-        self.max_integral = 2.0  # Evitar wind-up
+        self.max_integral = 5.0  # Evitar wind-up
         self.rate_max_integral = 0.5  # Evitar wind-up
         
         # Parametros do derivativo
@@ -92,12 +92,12 @@ class CascadeController:
         
         # ===== Ganhos: Velocidade XY (PID) ===== #
         self.kp_xy_vel = np.array([2.0, 2.0]) 
-        self.ki_xy_vel = np.array([0.15, 0.15]) # Praticamente zero
+        self.ki_xy_vel = np.array([0.8, 0.8]) # Praticamente zero
         self.kd_xy_vel = np.array([0.05, 0.05])
         
         # ===== Ganhos: Velocidade Z (PID) ===== #
         self.kp_z_vel = 2.0
-        self.ki_z_vel = 0.05
+        self.ki_z_vel = 0.8
         self.kd_z_vel = 0.4
 
         # ===== Ganhos: Posição XY e Z (P) ===== #
@@ -333,6 +333,8 @@ class CascadeController:
             Controle: Proporcional (P)
         '''
         error = self.des_angles - self.angles
+        
+        error[2] = math.atan2(math.sin(error[2]), math.cos(error[2]))
         
         omega_calc = self.kp_att * error
         

@@ -101,18 +101,19 @@ class Controller(Node):
                 x_cmd = self.manual_cmd[0]
                 y_cmd = self.manual_cmd[1]
                 z_cmd = self.manual_cmd[2]
-                yaw_cmd = self.manual_cmd[3]
+                yaw_cmd = self.manual_cmd[3] 
 
 
-                self.controller.des_velocity[0] = x_cmd * 1.5
-                self.controller.des_velocity[1] = y_cmd * 1.5
+                self.controller.des_velocity[0] = x_cmd * 2.5
+                self.controller.des_velocity[1] = y_cmd * 2.5
 
-                if z_cmd > 0:
-                    self.controller.des_velocity[2] = z_cmd * 0.5
-                else:
-                    self.controller.des_velocity[2] = z_cmd * 1.5
+                self.controller.des_velocity[2] = z_cmd * 2.5
+                
 
-                self.controller.des_angles[2] += (yaw_cmd * 0.5) * (1/50)
+                yaw_rate = self.get_parameter('max_yaw_rate').value 
+                dt = 1/50
+                
+                self.controller.des_angles[2] += (yaw_cmd * yaw_rate) * dt
             
             self.controller._xy_vel_control(dt=1/50)
             self.controller._z_vel_control(dt=1/50)
@@ -189,7 +190,8 @@ class Controller(Node):
         waypoint = np.array([self.pos_x, self.pos_y, self.pos_z, self.yaw])
 
         with self.lock:
-            self.controller.desired_state(waypoint, vel)
+            if self.current_fmd == FlightMode.AUTO:
+                self.controller.desired_state(waypoint, vel)
 
     def cmd_callback(self, msg:TwistStamped):
         u_vel = msg.twist.linear.x
