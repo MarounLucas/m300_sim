@@ -1,46 +1,40 @@
-'''
-Descrição:
-    Módulo responsável pelo planeamento de trajetória da aeronave. 
-    Implementa a interpolação do percurso waypoints utilizando trajetórias 
-    polinomiais de 5ª ordem. 
+"""
+UAV trajectory planning module. 
 
-Autor: Lucas Maroun de Almeida
-'''
+This module implements waypoint path interpolation using 5th-order 
+polynomial trajectories to ensure smooth transitions with zero velocity 
+and acceleration at the segment boundaries.
+
+Author: Lucas Maroun de Almeida
+"""
 
 import numpy as np
 
 class PathManager:
-    '''
-    Descrição:
-        Gestor de trajetória da aeronave. Recebe uma lista de coordenadas 
-        (waypoints) e divide o trajeto em múltiplos segmento.
-        Para cada segmento, calcula automaticamente o tempo necessário 
-        com base nas velocidades e pré-calcula os coeficientes polinomiais.
-    
-    Métodos:
-        __init__: Inicializa as listas de tempo, segmentos e coeficientes.
-        calculate_segment_time: Estima o tempo necessário para percorrer um segmento.
-        generate_path: Processa todos os waypoints e gera os coeficientes polinomiais.
-        calculate_yaw: Calcula o ângulo de yaw desejado com base no modo selecionado.
-        get_desired_state: Devolve a posição desejada num determinado instante global.
-    '''
+    """
+    Manages the flight trajectory by dividing waypoints into segments.
+
+    Calculates the required time for each segment based on spatial velocity 
+    constraints and pre-computes the polynomial coefficients for the entire mission.
+
+    Attributes
+    ----------
+    waypoints : list of np.ndarray
+        List of target coordinates in 3D space [x, y, z].
+    xy_velocity : float
+        Cruising horizontal velocity in m/s.
+    z_velocity : float
+        Cruising vertical velocity in m/s.
+    time_safety_factor : float
+        Multiplier applied to segment times to ensure trajectory smoothness.
+    yaw_mode : str
+        The active yaw control strategy ('none', 'forward', or 'target').
+    yaw_target : np.ndarray or None
+        The [x, y] coordinates the UAV should face when in 'target' mode.
+    """
     
     def __init__(self, waypoints: list, yaw_mode: str = 'none', yaw_target: list = None,
-                 xy_velocity: float = 9.2, z_velocity: float = 2.0, time_safety_factor: float = 2.6):
-        '''
-        Descrição:
-            Inicializa o gestor de trajetória convertendo os pontos recebidos
-            para vetores e preparando as estruturas de dados.
-
-        Args:
-            waypoints (list): Lista de pontos de passagem, onde cada ponto é 
-                              uma lista contendo [x, y, z].
-            yaw_mode (str): Modo de controle de yaw ('none', 'forward', 'target').
-            yaw_target (list): Coordenada do alvo [x, y] para o modo 'target'.
-            xy_velocity (float): Velocidade horizontal de cruzeiro (m/s).
-            z_velocity (float): Velocidade vertical de cruzeiro (m/s).
-            time_safety_factor (float): Fator de segurança para suavização da rota.
-        '''
+                 xy_velocity: float = 9.2, z_velocity: float = 2.0, time_safety_factor: float = 2.6) -> None:
         self.waypoints = [np.array(wp, dtype=float) for wp in waypoints]
         self.xy_velocity = xy_velocity
         self.z_velocity = z_velocity
@@ -57,20 +51,24 @@ class PathManager:
         self.last_yaw = 0.0
 
     def calculate_segment_time(self, q0: np.ndarray, qf: np.ndarray) -> float:
-        '''
-        Descrição:
-            Calcula o tempo estimado para o segmento definido pelas posições 
-            inicial (q0) e final (qf), considerando limites de velocidade 
-            independentes para os eixos XY e Z. Aplica também um fator de 
-            segurança ao tempo final.
+        """
+        Estimates the required time to traverse a segment based on velocity limits.
 
-        Args:
-            q0 (np.ndarray): Posição inicial do segmento [x, y, z].
-            qf (np.ndarray): Posição final do segmento [x, y, z].
+        Evaluates the displacement in the XY plane and Z axis independently, 
+        selecting the maximum time required to satisfy both velocity constraints.
 
-        Returns:
-            float: Tempo estimado em segundos para concluir o segmento.
-        '''
+        Parameters
+        ----------
+        q0 : np.ndarray
+            The starting coordinate of the segment [x, y, z].
+        qf : np.ndarray
+            The target coordinate of the segment [x, y, z].
+
+        Returns
+        -------
+        float
+            The estimated travel time in seconds, adjusted by the safety factor.
+        """
         dist_xy = np.linalg.norm(qf[0:2] - q0[0:2])
         dist_z = np.abs(qf[2] - q0[2])
         
@@ -87,13 +85,13 @@ class PathManager:
             
         return time * self.time_safety_factor
 
-    def generate_path(self):
-        '''
-        Descrição:
-            Itera sobre todos os waypoints e cria uma instância de polinómio de 
-            5ª ordem para cada segmento. Calcula e armazena os coeficientes 
-            polinomiais.         
-        '''
+    def generate_path(self) -> None:
+        """
+        Generates the mathematical path for all specified waypoints.
+
+        Iterates through the waypoint list, initializes 5th-order polynomial 
+        segments for each leg, and solves for the trajectory coefficients.
+        """
         for n in range(len(self.waypoints) - 1):
             q0 = self.waypoints[n]
             qf = self.waypoints[n+1]
@@ -109,16 +107,31 @@ class PathManager:
             coefficient = traj.generate_path()
             self.segment_coefficients.append(coefficient)
 
-        print(f"Missão Gerada: {len(self.segments)} segmentos | Tempo Total: {self.total_time:.2f}s")
+        print(f"Mission Generated: {len(self.segments)} segments | Total Time: {self.total_time:.2f}s")
 
     def calculate_yaw(self, idx: int, t_local: float, current_pos: np.ndarray) -> float:
-        '''
-        Descrição:
-            Calcula o ângulo de yaw desejado com base no modo selecionado.
-            'forward': Drone sempre aponta para frente;
-            'target': Drone sempre aponta para um alvo;
-            'none': Não há contole em yaw.
-        '''
+        """
+        Calculates the desired yaw angle based on the selected flight mode.
+
+        Parameters
+        ----------
+        idx : int
+            The index of the current trajectory segment.
+        t_local : float
+            The elapsed time within the current segment.
+        current_pos : np.ndarray
+            The current spatial position of the UAV [x, y, z].
+
+        Returns
+        -------
+        float
+            The target yaw angle in radians.
+
+        Raises
+        ------
+        ValueError
+            If 'target' mode is selected but no target coordinates are provided.
+        """
         if self.yaw_mode == 'forward':
             vel = self.segments[idx].sample_velocity(t_local)
             if np.linalg.norm(vel[0:2]) < 1e-3:
@@ -129,7 +142,7 @@ class PathManager:
 
         elif self.yaw_mode == 'target':
             if self.yaw_target is None:
-                raise ValueError("yaw_target não definido para o modo 'target'.")
+                raise ValueError("yaw_target must be defined when using 'target' mode.")
             
             dx = self.yaw_target[0] - current_pos[0]
             dy = self.yaw_target[1] - current_pos[1]
@@ -139,23 +152,27 @@ class PathManager:
         return 0.0
     
     def get_desired_state(self, t_global: float) -> tuple:
-        '''
-        Descrição:
-            Determina em que segmento a aeronave se encontra com base no 
-            tempo global da simulação e solicita o cálculo da posição exata 
-            para esse instante de tempo.
+        """
+        Determines the expected UAV state for a given simulation timeframe.
 
-        Args:
-            t_global (float): Tempo total decorrido desde o início da missão (segundos).
+        Parameters
+        ----------
+        t_global : float
+            The total elapsed time since the mission started, in seconds.
 
-        Returns:
-            desire_position (np.ndarray): Posição espacial desejada [x, y, z].
-            desire_yaw (float): Ângulo de yaw desejado em radianos.
-            idx (int): Índice do segmento de trajetória atual.
-        '''
+        Returns
+        -------
+        tuple
+            A tuple containing:
+            - desire_position (np.ndarray): The target spatial coordinates [x, y, z].
+            - desire_velocity (np.ndarray): The target velocity vector [u, v, w].
+            - desire_yaw (float): The target yaw angle in radians.
+            - idx (int): The index of the active segment.
+        """
         if t_global >= self.total_time:
             final_pos = self.waypoints[-1][0:3]
-            return final_pos, self.last_yaw, len(self.segments) - 1
+            # Returns a zero velocity array for the final state to maintain tuple structure consistency
+            return final_pos, np.zeros(3), self.last_yaw, len(self.segments) - 1
         
         idx = 0
         for i, start_t in enumerate(self.start_times):
@@ -173,30 +190,26 @@ class PathManager:
 
 
 class PolinomialTraj:
-    '''
-    Descrição:
-        Classe responsável por construir e resolver o modelo matemático de uma 
-        trajetória polinomial de 5ª ordem para um único segmento tridimensional. 
-        As condições de contorno garantem que as posições são atingidas com 
-        velocidade e aceleração nulas.
-        
-    Métodos:
-        __init__: Define as condições iniciais e finais do segmento.
-        generate_path: Resolve o sistema linear de restrições geométricas.
-        sample_position: Calcula a posição num determinado instante de tempo.
-    '''
+    """
+    Constructs and solves a 5th-order polynomial trajectory for a 3D segment.
 
-    def __init__(self, q0: np.ndarray, qf: np.ndarray, t: float):
-        '''
-        Descrição:
-            Inicializa o segmento polinomial estabelecendo posições iniciais 
-            e finais, velocidades e acelerações a zero nos extremos.
+    Boundary conditions enforce that the start and end positions are reached 
+    with zero velocity and zero acceleration, ensuring smooth kinematics.
+    """
 
-        Args:
-            q0 (np.ndarray): Vetor de posição inicial [x, y, z].
-            qf (np.ndarray): Vetor de posição final [x, y, z].
-            t (float): Duração total para percorrer o segmento (segundos).
-        ''' 
+    def __init__(self, q0: np.ndarray, qf: np.ndarray, t: float) -> None:
+        """
+        Initializes the polynomial segment with zero initial/final derivatives.
+
+        Parameters
+        ----------
+        q0 : np.ndarray
+            The starting position vector [x, y, z].
+        qf : np.ndarray
+            The final position vector [x, y, z].
+        t : float
+            The duration allocated to complete the segment, in seconds.
+        """ 
         self.q0 = q0
         self.dq0 = np.zeros(3)
         self.ddq0 = np.zeros(3)
@@ -212,19 +225,22 @@ class PolinomialTraj:
         self.x = np.zeros((6, 3))
 
     def generate_path(self) -> np.ndarray:
-        '''
-        Descrição:
-            Gera o sistema de equações lineares correspondente às 6 condições 
-            de contorno (posição, velocidade e aceleração no início e no fim) 
-            e resolve o sistema (Ax = b) para obter a matriz de coeficientes.
+        """
+        Solves the linear system to find the polynomial coefficients.
 
-            Ideia futura: escrever as equações algébricas fechadas para 
-            simplificar o custo da inversão matricial.
+        Formulates the 6 boundary conditions (position, velocity, acceleration 
+        at both extremes) into an Ax = b system and solves for x.
 
-        Returns:
-            np.ndarray: Matriz (6x3) contendo os coeficientes do polinómio 
-                        para as coordenadas X, Y e Z.
-        '''
+        Returns
+        -------
+        np.ndarray
+            A (6x3) matrix containing the polynomial coefficients for X, Y, and Z.
+
+        Notes
+        -----
+        Future optimization: Implement closed-form algebraic equations to 
+        bypass the computational cost of matrix inversion.
+        """
         A = np.array([
             [1, 0, 0, 0, 0, 0],
             [0, 1, 0, 0, 0, 0],
@@ -239,17 +255,19 @@ class PolinomialTraj:
         return self.x
     
     def sample_position(self, t_atual: float) -> np.ndarray:
-        '''
-        Descrição:
-            Avalia o polinómio de 5ª ordem num determinado instante de tempo 
-            local para obter as coordenadas instantâneas da trajetória.
+        """
+        Evaluates the 5th-order polynomial at a specific local time.
 
-        Args:
-            t_atual (float): Tempo decorrido desde o início do segmento (segundos).
+        Parameters
+        ----------
+        t_atual : float
+            Elapsed time since the beginning of the segment, in seconds.
 
-        Returns:
-            np.ndarray: Vetor contendo a posição calculada [x, y, z].
-        '''
+        Returns
+        -------
+        np.ndarray
+            The calculated instantaneous position [x, y, z].
+        """
         self.powers[0] = 1.0
         self.powers[1] = t_atual
         self.powers[2] = t_atual**2
@@ -261,17 +279,19 @@ class PolinomialTraj:
         return self.des_position
 
     def sample_velocity(self, t_atual: float) -> np.ndarray:
-        '''
-        Descrição:
-            Avalia a primeira derivada do polinómio de 5ª ordem num determinado 
-            instante de tempo local para obter as velocidades instantâneas.
+        """
+        Evaluates the first derivative of the polynomial at a specific local time.
 
-        Args:
-            t_atual (float): Tempo decorrido desde o início do segmento (segundos).
+        Parameters
+        ----------
+        t_atual : float
+            Elapsed time since the beginning of the segment, in seconds.
 
-        Returns:
-            np.ndarray: Vetor contendo a velocidade calculada [u, v, w].
-        '''
+        Returns
+        -------
+        np.ndarray
+            The calculated instantaneous velocity [u, v, w].
+        """
         self.vel_powers[0] = 0.0
         self.vel_powers[1] = 1.0
         self.vel_powers[2] = 2.0 * t_atual

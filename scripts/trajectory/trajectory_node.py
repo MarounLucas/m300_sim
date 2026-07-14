@@ -1,3 +1,11 @@
+"""
+ROS 2 node for UAV trajectory execution and finite state machine (FSM) management.
+
+This node bridges the mathematical trajectory generation with the ROS ecosystem,
+handling waypoint tracking, stabilization, and smooth transitions between 
+AUTO and MANUAL flight modes using 5th-order polynomial recovery paths.
+"""
+
 import rclpy
 from rclpy.node import Node
 from scipy.spatial.transform import Rotation
@@ -6,15 +14,32 @@ import numpy as np
 from nav_msgs.msg import Odometry
 from m300_msgs.msg import FlightMode
 
-# Importando o PathManager e o PolinomialTraj do seu módulo de trajetória
 from .trajectory import PathManager, PolinomialTraj
 
 class TrajectoryNode(Node):
+    """
+    ROS 2 Node that manages the flight mission states and publishes trajectory references.
 
-    def __init__(self):
+    Attributes
+    ----------
+    path_manager : PathManager
+        Instance responsible for calculating the mathematical path.
+    mission_state : str
+        Current state of the FSM ('TRACKING', 'STABILIZING', 'MANUAL_MODE', 'RECOVERING').
+    traj_time : float
+        Elapsed time in the nominal trajectory execution.
+    segment_idx : int
+        Index of the current waypoint segment being tracked.
+    curr_position : np.ndarray
+        The actual spatial position of the UAV [x, y, z] from telemetry.
+    current_fmd : int
+        The active flight mode (e.g., AUTO or MANUAL).
+    """
+
+    def __init__(self) -> None:
         super().__init__('trajectory_node')
 
-        # 1. Declaração de Parâmetros da Trajetória original
+        # 1. Trajectory Parameter Declaration
         self.declare_parameter('waypoints', [0.0, 0.0, 0.0, 0.0, 0.0, -10.0])
         self.declare_parameter('yaw_mode', 'forward')
 
@@ -25,16 +50,15 @@ class TrajectoryNode(Node):
         self.path_manager = PathManager(waypoints, yaw_mode=yaw_mode_param)
         self.path_manager.generate_path()
 
-        # 2. Configurações da FSM de Missão Unificada
-        # Estados possíveis: "TRACKING", "STABILIZING", "MANUAL_MODE", "RECOVERING"
+        # 2. Unified Mission FSM Configuration
         self.mission_state = "TRACKING"
         self.traj_time = 0.0
         self.segment_idx = 0
         self.curr_position = np.zeros(3)
         self.wp_tolerance = 0.5
-        self.dt = 1/100  # Executando a malha a 100Hz
+        self.dt = 1.0 / 100.0  
 
-        # 3. Variáveis de Controle para Alternância de Modos e Resgate
+        # 3. Variables for Mode Switching and Recovery
         self.current_fmd = FlightMode.AUTO
         self.paused_pos = np.zeros(3)
         self.paused_yaw = 0.0
@@ -43,66 +67,90 @@ class TrajectoryNode(Node):
         self.recovery_time = 0.0
         self.recovery_duration = 0.0
 
-        # 4. Inicialização de Publishers e Subscribers
+        # 4. Publishers and Subscribers Initialization
         self.traj_pub = self.create_publisher(Odometry, '/m300_sim/trajectory_topic', 10)
         self.state_sub = self.create_subscription(Odometry, '/m300_sim/telemetry_topic', self.pose_callback, 10)
         self.fmd_sub = self.create_subscription(FlightMode, '/m300_sim/flight_mode', self.fmd_callback, 10)
 
-        # Timer principal da malha de trajetória
+        # Main trajectory control loop timer
         self.create_timer(self.dt, self.traj_callback)
-        self.get_logger().info('Nó de Trajetória Unificado e Inteligente Inicializado.')
 
-    def pose_callback(self, msg: Odometry):
-        """Atualiza a posição física real do drone vinda da telemetria."""
+    def pose_callback(self, msg: Odometry) -> None:
+        """
+        Updates the UAV's physical position from telemetry data.
+
+        Parameters
+        ----------
+        msg : Odometry
+            The incoming odometry message containing the current pose.
+        """
         px = msg.pose.pose.position.x
         py = msg.pose.pose.position.y
         pz = msg.pose.pose.position.z
         self.curr_position[0:3] = px, py, pz
 
-    def fmd_callback(self, msg: FlightMode):
-        """Gerencia as transições de modo e atende às solicitações 1 e 2."""
-        # [SOLICITAÇÃO 1] Transição de AUTO -> MANUAL: Armazena o último estado desejado da rota
+    def fmd_callback(self, msg: FlightMode) -> None:
+        """
+        Manages flight mode transitions and trajectory recovery logic.
+
+        Handles the interruption of the mission (AUTO -> MANUAL) by freezing 
+        the expected route state, and manages the resumption (MANUAL -> AUTO) 
+        by generating a smooth polynomial recovery path.
+
+        Parameters
+        ----------
+        msg : FlightMode
+            The incoming flight mode message.
+        """
+        # Transition: AUTO -> MANUAL (Mission Interruption)
         if self.current_fmd == FlightMode.AUTO and msg.mode == FlightMode.MANUAL:
-            self.get_logger().info('Interrupção detectada: Mudança para modo MANUAL. Congelando rota.')
+            self.get_logger().info('Interruption detected: Switched to MANUAL mode. Freezing route.')
             self.mission_state = "MANUAL_MODE"
-            # Captura exatamente onde o drone deveria estar na rota cronológica
+            
+            # Capture the exact chronological state where the UAV should be
             self.paused_pos, _, self.paused_yaw, _ = self.path_manager.get_desired_state(self.traj_time)
             
-        # [SOLICITAÇÃO 2] Transição de MANUAL -> AUTO: Planeja um retorno suave por polinômio de 5ª ordem
+        # Transition: MANUAL -> AUTO (Mission Resumption)
         elif self.current_fmd == FlightMode.MANUAL and msg.mode == FlightMode.AUTO:
-            self.get_logger().info('Retomando missão: Mudança para modo AUTO. Calculando retorno suave.')
+            self.get_logger().info('Resuming mission: Switched to AUTO mode. Calculating smooth recovery.')
             self.mission_state = "RECOVERING"
             self.recovery_time = 0.0
             
-            # Garante que temos o ponto de congelamento atualizado
+            # Ensure the freeze point is updated
             self.paused_pos, _, self.paused_yaw, _ = self.path_manager.get_desired_state(self.traj_time)
             
-            # Calcula o tempo necessário de voo seguro com base nas restrições de velocidade do PathManager
+            # Calculate required safe flight time based on PathManager constraints
             self.recovery_duration = self.path_manager.calculate_segment_time(self.curr_position, self.paused_pos)
             
-            # Gera dinamicamente um novo polinômio ligando a posição atual (MANUAL) ao ponto salvo da rota
+            # Dynamically generate a new polynomial connecting the current manual position to the saved route point
             self.recovery_traj = PolinomialTraj(self.curr_position, self.paused_pos, self.recovery_duration)
             self.recovery_traj.generate_path()
             
         self.current_fmd = msg.mode
 
-    def traj_callback(self):
-        """Executa a lógica de controle temporal de acordo com o estado da FSM."""
+    def traj_callback(self) -> None:
+        """
+        Executes the temporal control logic according to the FSM state.
+
+        Evaluates the current mission state, updates the expected kinematic 
+        references (position, velocity, yaw), and publishes them as an 
+        Odometry message to be consumed by the inner control loops.
+        """
         desire_pos = np.zeros(3)
         desire_vel = np.zeros(3)
         desire_yaw = 0.0
 
-        # --- Estado 1: Rastreamento Normal da Rota ---
+        # --- State 1: Normal Route Tracking ---
         if self.mission_state == "TRACKING":
             self.traj_time += self.dt
             desire_pos, desire_vel, desire_yaw, _ = self.path_manager.get_desired_state(self.traj_time)
 
             local_time = self.traj_time - self.path_manager.start_times[self.segment_idx]
             if local_time >= self.path_manager.segment_times[self.segment_idx]:
-                self.get_logger().info(f'Estabilizando/Aproximando do waypoint {self.segment_idx + 1}')
+                self.get_logger().info(f'Stabilizing/Approaching waypoint {self.segment_idx + 1}')
                 self.mission_state = "STABILIZING"
         
-        # --- Estado 2: Estabilização e Verificação de Waypoints [SOLICITAÇÃO 3] ---
+        # --- State 2: Stabilization and Waypoint Verification ---
         elif self.mission_state == "STABILIZING":
             desire_pos, desire_vel, desire_yaw, _ = self.path_manager.get_desired_state(self.traj_time)
             target_pos = self.path_manager.waypoints[self.segment_idx + 1][0:3]
@@ -111,39 +159,39 @@ class TrajectoryNode(Node):
             if error < self.wp_tolerance:
                 if self.segment_idx < (len(self.path_manager.segments) - 1):
                     self.segment_idx += 1   
-                    self.get_logger().info(f'Prosseguindo para o waypoint {self.segment_idx + 2}')
+                    self.get_logger().info(f'Proceeding to waypoint {self.segment_idx + 2}')
                     self.mission_state = "TRACKING"
                 else:
-                    # [SOLICITAÇÃO 3] Chegou ao fim da rota: Permanece em hover fixo indefinidamente
-                    # O tempo de trajetória não avança mais e a velocidade desejada enviada será zero.
+                    # End of route reached: Maintain fixed hover indefinitely.
+                    # Trajectory time stops advancing; desired velocity remains zero.
                     pass
 
-        # --- Estado 3: Modo Manual Ativo (Voo Livre por Joystick) ---
+        # --- State 3: Active Manual Mode (Free flight via Joystick) ---
         elif self.mission_state == "MANUAL_MODE":
-            # Enquanto o piloto controla, publicamos a posição física atual como referência suave 
-            # para evitar sobressaltos nas malhas internas do CascadeController
+            # While the pilot is in control, publish the physical position as a 
+            # smooth reference to avoid inner loop (CascadeController) jumps.
             desire_pos = self.curr_position.copy()
             desire_vel = np.zeros(3)
             desire_yaw = self.paused_yaw
 
-        # --- Estado 4: Recuperação Suave de Trajetória [SOLICITAÇÃO 2] ---
+        # --- State 4: Smooth Trajectory Recovery ---
         elif self.mission_state == "RECOVERING":
             self.recovery_time += self.dt
             
-            # Amostra o polinômio de transição calculado
+            # Sample the transition polynomial
             desire_pos = self.recovery_traj.sample_position(self.recovery_time)
             desire_vel = self.recovery_traj.sample_velocity(self.recovery_time)
             desire_yaw = self.paused_yaw
 
-            # Quando a curva de transição chega ao fim, retorna à rota cronológica original
+            # When the transition curve ends, return to the original chronological route
             if self.recovery_time >= self.recovery_duration:
-                self.get_logger().info('Drone posicionado de volta na rota com sucesso. Reiniciando missão.')
+                self.get_logger().info('UAV successfully repositioned on route. Resuming mission.')
                 if self.traj_time >= self.path_manager.total_time:
                     self.mission_state = "STABILIZING"
                 else:
                     self.mission_state = "TRACKING"
 
-        # --- Publicação da Referência de Odometria ---
+        # --- Publish Odometry Reference ---
         msg = Odometry()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = "map"
@@ -165,7 +213,8 @@ class TrajectoryNode(Node):
 
         self.traj_pub.publish(msg)
 
-def main(args=None):
+
+def main(args=None) -> None:
     rclpy.init(args=args)
     vec_pub_node = TrajectoryNode()
     try:
