@@ -1,90 +1,192 @@
-import sys
-import numpy as np
-import time
-from pathlib import Path
-import pyqtgraph as pg
+"""Live telemetry visualization and ground control station module.
 
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
-                               QLabel, QMessageBox, QFileDialog, QGroupBox,
-                               QRadioButton, QFrame, QButtonGroup, QDialog, 
-                               QTextBrowser, QGridLayout, QCheckBox, QComboBox, QApplication,
-                               QStyle)
+This module provides interactive PyQtGraph-based dashboards for monitoring 
+UAV states (position, attitude, velocities) in real-time. It supports data 
+history buffering, CSV exporting, and off-screen high-resolution rendering.
+"""
+
+import sys
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import numpy as np
+import pyqtgraph as pg
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPalette, QColor, QShortcut, QKeySequence, QFont, QPixmap
+from PySide6.QtGui import QColor, QFont, QKeySequence, QPalette, QShortcut
+from PySide6.QtWidgets import (
+    QApplication,
+    QButtonGroup,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QFrame,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QRadioButton,
+    QStyle,
+    QTextBrowser,
+    QVBoxLayout,
+    QWidget,
+    QFileDialog,
+)
+
 
 # =========================================================================
-# CAIXAS DE DIÁLOGO
+# DIALOG BOXES
 # =========================================================================
 class TelemetryHelpDialog(QDialog):
-    def __init__(self, parent=None):
+    """Floating help dialog detailing the telemetry dashboard usage."""
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        """Initializes the telemetry help dialog.
+
+        Args:
+            parent (Optional[QWidget]): The parent widget.
+        """
         super().__init__(parent)
         self.setWindowTitle("Documentation - Live Telemetry")
-        self.resize(800, 500) 
+        self.resize(800, 500)
+        
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        
         browser = QTextBrowser()
         
-        html_content = """
-        <html>
-        <head>
-        <style>
-            body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #e0e0e0; padding: 15px 25px; }
-            h2 { color: #00d4ff; margin-top: 10px; border-bottom: 1px solid #555; padding-bottom: 5px;}
-            h3 { color: #4caf50; margin-top: 25px; margin-bottom: 5px; }
-            ul { margin-top: 5px; padding-left: 25px; }
-            li { margin-bottom: 8px; }
-            b { color: #ffffff; }
-        </style>
-        </head>
-        <body>
-        <h2>Live Telemetry Dashboard Guide</h2>
-        <p>This panel acts as the Ground Control Station (GCS) for your UAV, monitoring data streamed directly from the ROS 2 environment in real-time.</p>
-        
-        <h3>1. Interactive Graphs & History</h3>
-        <ul>
-            <li><b>Pan & Zoom:</b> The graphs are fully interactive. Use the mouse wheel to zoom in/out, and click-drag to pan across the timeline.</li>
-            <li><b>Auto-Scroll Toggle:</b> Uncheck the 'Auto-Scroll' box to stop the live window and view the complete flight history on the graphs.</li>
-            <li><b>Switching Views:</b> Use the Radio Buttons or press <b>Tab</b> on your keyboard to quickly cycle between data categories, including the future 3D Digital Twin environment.</li>
-        </ul>
-
-        <h3>2. Data Recording & Export</h3>
-        <ul>
-            <li><b>Export CSV:</b> Generates a complete mathematical report of the current flight, saving the full history of all states for offline analysis in Matlab/Python.</li>
-            <li><b>Snapshot Graph:</b> Advanced rendering tool. You can select specific data groups (e.g., Only Velocities, Only Altitude) and the system will render a high-resolution PNG off-screen specifically for your reports.</li>
-            <li><b>Clear History:</b> Wipes the background memory and resets the dashboard timeline back to zero. Perfect to be used before triggering a new route.</li>
-        </ul>
-        </body>
-        </html>
-        """
+        html_content = (
+            "<html><head><style>"
+            "body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 14px; "
+            "line-height: 1.6; color: #e0e0e0; padding: 15px 25px; }"
+            "h2 { color: #00d4ff; margin-top: 10px; border-bottom: 1px solid #555; "
+            "padding-bottom: 5px;}"
+            "h3 { color: #4caf50; margin-top: 25px; margin-bottom: 5px; }"
+            "ul { margin-top: 5px; padding-left: 25px; }"
+            "li { margin-bottom: 8px; }"
+            "b { color: #ffffff; }"
+            "</style></head><body>"
+            "<h2>Live Telemetry Dashboard Guide</h2>"
+            "<p>This panel acts as the Ground Control Station (GCS) for your UAV, "
+            "monitoring data streamed directly from the ROS 2 environment in real-time.</p>"
+            "<h3>1. Interactive Graphs & History</h3><ul>"
+            "<li><b>Pan & Zoom:</b> The graphs are fully interactive. Use the mouse wheel "
+            "to zoom in/out, and click-drag to pan across the timeline.</li>"
+            "<li><b>Auto-Scroll Toggle:</b> Uncheck the 'Auto-Scroll' box to stop the live "
+            "window and view the complete flight history on the graphs.</li>"
+            "<li><b>Switching Views:</b> Use the Radio Buttons or press <b>Tab</b> on your "
+            "keyboard to cycle between data categories, including the future 3D Twin.</li>"
+            "</ul><h3>2. Data Recording & Export</h3><ul>"
+            "<li><b>Export CSV:</b> Generates a complete mathematical report of the flight, "
+            "saving the full history for offline analysis in Matlab/Python.</li>"
+            "<li><b>Snapshot Graph:</b> Advanced rendering tool. You can select specific data "
+            "groups and the system will render a high-res PNG off-screen for reports.</li>"
+            "<li><b>Clear History:</b> Wipes the background memory and resets the dashboard "
+            "timeline back to zero. Perfect to use before triggering a new route.</li>"
+            "</ul></body></html>"
+        )
         browser.setHtml(html_content)
         layout.addWidget(browser)
 
+
 class CustomMessageBox(QDialog):
-    def __init__(self, title, main_text, detail_text="", msg_type="info", parent=None):
+    """Custom dialog box replacing QMessageBox for perfect responsiveness."""
+
+    def __init__(
+        self,
+        title: str,
+        main_text: str,
+        detail_text: str = "",
+        msg_type: str = "info",
+        parent: Optional[QWidget] = None,
+    ) -> None:
+        """Initializes the custom message box with tailored styling.
+
+        Args:
+            title (str): The window title.
+            main_text (str): The primary message header.
+            detail_text (str): Optional secondary explanatory text.
+            msg_type (str): Type of prompt ('info', 'question', 'success', 'error').
+            parent (Optional[QWidget]): The parent widget.
+        """
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setMinimumWidth(450)
-        self.setStyleSheet("QDialog { background-color: #2b2b2b; } QLabel { color: #e0e0e0; font-size: 14px;} QPushButton { background-color: #0d6efd; color: white; border-radius: 4px; padding: 6px 16px; font-weight: bold; min-width: 80px; } QPushButton:hover { background-color: #0b5ed7; }")
+        
+        self.setStyleSheet(
+            "QDialog { background-color: #2b2b2b; } "
+            "QLabel { color: #e0e0e0; font-size: 14px;} "
+            "QPushButton { background-color: #0d6efd; color: white; border-radius: 4px; "
+            "padding: 6px 16px; font-weight: bold; min-width: 80px; } "
+            "QPushButton:hover { background-color: #0b5ed7; }"
+        )
+        
         layout = QVBoxLayout(self)
         layout.setSpacing(15)
         layout.setContentsMargins(20, 20, 20, 20)
+        
         layout.addWidget(QLabel(f"<h3 style='margin: 0;'>{main_text}</h3>"))
         if detail_text:
             layout.addWidget(QLabel(detail_text))
+            
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
-        btn_ok = QPushButton("OK")
-        btn_ok.clicked.connect(self.accept)
-        btn_layout.addWidget(btn_ok)
+        
+        self.result = QMessageBox.StandardButton.No
+        
+        if msg_type == "question":
+            btn_yes = QPushButton("Yes")
+            btn_yes.clicked.connect(self.accept_yes)
+            btn_no = QPushButton("No")
+            btn_no.clicked.connect(self.reject_no)
+            btn_layout.addWidget(btn_yes)
+            btn_layout.addWidget(btn_no)
+        else:
+            btn_ok = QPushButton("OK")
+            btn_ok.clicked.connect(self.accept_ok)
+            btn_layout.addWidget(btn_ok)
+            
         layout.addLayout(btn_layout)
 
+    def accept_yes(self) -> None:
+        self.result = QMessageBox.StandardButton.Yes
+        self.accept()
+
+    def reject_no(self) -> None:
+        self.result = QMessageBox.StandardButton.No
+        self.reject()
+
+    def accept_ok(self) -> None:
+        self.result = QMessageBox.StandardButton.Ok
+        self.accept()
+
+    def exec(self) -> QMessageBox.StandardButton:
+        super().exec()
+        return self.result
+
+
 class ExportGraphDialog(QDialog):
-    """Menu avançado para escolher e renderizar qual gráfico salvar, conforme solicitado."""
-    def __init__(self, parent=None):
+    """Advanced menu to choose and render specific graphs for image export."""
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        """Initializes the advanced export dialog options.
+
+        Args:
+            parent (Optional[QWidget]): The parent widget.
+        """
         super().__init__(parent)
         self.setWindowTitle("Advanced Export Options")
         self.setMinimumWidth(400)
-        self.setStyleSheet("QDialog { background-color: #2b2b2b; color: white; } QLabel { color: #e0e0e0; font-size: 14px;} QPushButton { background-color: #0d6efd; color: white; border-radius: 4px; padding: 6px 16px; font-weight: bold; } QComboBox { background-color: #3b3b3b; color: white; padding: 5px; border: 1px solid #555; font-size: 13px;}")
+        
+        self.setStyleSheet(
+            "QDialog { background-color: #2b2b2b; color: white; } "
+            "QLabel { color: #e0e0e0; font-size: 14px;} "
+            "QPushButton { background-color: #0d6efd; color: white; border-radius: 4px; "
+            "padding: 6px 16px; font-weight: bold; } "
+            "QComboBox { background-color: #3b3b3b; color: white; padding: 5px; "
+            "border: 1px solid #555; font-size: 13px;}"
+        )
         
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Select the specific data group to render and export:"))
@@ -92,7 +194,10 @@ class ExportGraphDialog(QDialog):
         self.combo = QComboBox()
         self.options = [
             ("Current Visible Screen (WYSIWYG)", []),
-            ("Full Dashboard Overview (12 Plots)", ['x','y','z','roll','pitch','yaw','u','v','w','p','q','r']),
+            (
+                "Full Dashboard Overview (12 Plots)", 
+                ['x', 'y', 'z', 'roll', 'pitch', 'yaw', 'u', 'v', 'w', 'p', 'q', 'r']
+            ),
             ("Position - All (North, East, Alt)", ['x', 'y', 'z']),
             ("Position - Specific: North", ['x']),
             ("Position - Specific: East", ['y']),
@@ -118,6 +223,7 @@ class ExportGraphDialog(QDialog):
         
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
+        
         self.btn_export = QPushButton("Render & Save PNG")
         self.btn_export.clicked.connect(self.accept)
         btn_layout.addWidget(self.btn_export)
@@ -125,82 +231,129 @@ class ExportGraphDialog(QDialog):
         layout.addLayout(btn_layout)
         self.selected_index = 0
 
-    def accept(self):
+    def accept(self) -> None:
+        """Saves the user selection and accepts the dialog."""
         self.selected_index = self.combo.currentIndex()
         super().accept()
 
-# Configuração global do PyQtGraph para alta performance
+
+# Global PyQtGraph configuration for high performance and dark theme compatibility
 pg.setConfigOption('background', '#2b2b2b')
 pg.setConfigOption('foreground', '#aaaaaa')
 pg.setConfigOptions(antialias=True) 
 
+
 # =========================================================================
-# CLASSE PRINCIPAL DA ABA
+# MAIN TAB CLASS
 # =========================================================================
 class TabTelemetry(QWidget):
-    def __init__(self, main_window_ref):
+    """Telemetry tab for visualizing drone data and controlling history.
+
+    Attributes:
+        main_window (QWidget): Reference to the parent main window.
+        window_size (int): The number of data points kept in the live sliding window.
+        online_start_t (Optional[float]): Timestamp when telemetry first arrived.
+    """
+
+    def __init__(self, main_window_ref: QWidget) -> None:
+        """Initializes the telemetry UI, graphs, and data buffers.
+
+        Args:
+            main_window_ref (QWidget): Reference to the main application window.
+        """
         super().__init__()
         self.main_window = main_window_ref 
         
         self.window_size = 300 
-        self.online_start_t = None
+        self.online_start_t: Optional[float] = None
+        
         self._init_rolling_buffer()
         self.flight_history = self._create_empty_history()
-        self.graph_items = [] 
+        self.graph_items: List[tuple] = [] 
         
         self._setup_dark_theme()
         self._build_ui()
         self._setup_shortcuts()
         self.init_graphs()
 
-    def _init_rolling_buffer(self):
+    def _init_rolling_buffer(self) -> None:
+        """Initializes the fixed-size sliding window arrays for live plotting."""
         t_array = np.linspace(-10.0, 0.0, self.window_size)
-        self.online_data = {
+        
+        self.online_data: Dict[str, np.ndarray] = {
             't': t_array.copy(),
-            'x': np.zeros(self.window_size), 'y': np.zeros(self.window_size), 'z': np.zeros(self.window_size),
-            'roll': np.zeros(self.window_size), 'pitch': np.zeros(self.window_size), 'yaw': np.zeros(self.window_size),
-            'u': np.zeros(self.window_size), 'v': np.zeros(self.window_size), 'w': np.zeros(self.window_size),
-            'p': np.zeros(self.window_size), 'q': np.zeros(self.window_size), 'r': np.zeros(self.window_size)
+            'x': np.zeros(self.window_size),
+            'y': np.zeros(self.window_size),
+            'z': np.zeros(self.window_size),
+            'roll': np.zeros(self.window_size),
+            'pitch': np.zeros(self.window_size),
+            'yaw': np.zeros(self.window_size),
+            'u': np.zeros(self.window_size),
+            'v': np.zeros(self.window_size),
+            'w': np.zeros(self.window_size),
+            'p': np.zeros(self.window_size),
+            'q': np.zeros(self.window_size),
+            'r': np.zeros(self.window_size)
         }
 
-    def _create_empty_history(self):
-        return {'t': [], 'x': [], 'y': [], 'z': [], 'roll': [], 'pitch': [], 'yaw': [], 
-                'u': [], 'v': [], 'w': [], 'p': [], 'q': [], 'r': []}
+    def _create_empty_history(self) -> Dict[str, List[float]]:
+        """Creates an empty dictionary structure for full flight history.
 
-    def _setup_dark_theme(self):
+        Returns:
+            Dict[str, List[float]]: The empty history structure.
+        """
+        return {
+            't': [], 'x': [], 'y': [], 'z': [], 
+            'roll': [], 'pitch': [], 'yaw': [], 
+            'u': [], 'v': [], 'w': [], 
+            'p': [], 'q': [], 'r': []
+        }
+
+    def _setup_dark_theme(self) -> None:
+        """Applies dark theme styling specifically for the telemetry tab."""
         palette = QPalette()
         palette.setColor(QPalette.ColorRole.Window, QColor(43, 43, 43))
         palette.setColor(QPalette.ColorRole.WindowText, Qt.GlobalColor.white)
         palette.setColor(QPalette.ColorRole.Base, QColor(25, 25, 25))
         palette.setColor(QPalette.ColorRole.AlternateBase, QColor(43, 43, 43))
         self.setPalette(palette)
-        self.setStyleSheet("""
-            QGroupBox { border: 1px solid #555555; border-radius: 4px; margin-top: 2ex; padding-top: 10px; color: #e0e0e0; font-weight: bold;}
-            QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; padding: 0 5px; color: #00d4ff; }
-            QPushButton { background-color: #3b3b3b; color: white; border: 1px solid #555; border-radius: 4px; padding: 6px 12px; }
-            QPushButton:hover { background-color: #0d6efd; border: 1px solid #0d6efd; }
-            QCheckBox { color: white; font-weight: bold; }
-            QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid #555; background: #2b2b2b; }
-            QCheckBox::indicator:checked { background: #00d4ff; border: 1px solid #00d4ff; }
-        """)
+        
+        self.setStyleSheet(
+            "QGroupBox { border: 1px solid #555555; border-radius: 4px; "
+            "margin-top: 2ex; padding-top: 10px; color: #e0e0e0; font-weight: bold;} "
+            "QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; "
+            "padding: 0 5px; color: #00d4ff; } "
+            "QPushButton { background-color: #3b3b3b; color: white; "
+            "border: 1px solid #555; border-radius: 4px; padding: 6px 12px; } "
+            "QPushButton:hover { background-color: #0d6efd; border: 1px solid #0d6efd; } "
+            "QCheckBox { color: white; font-weight: bold; } "
+            "QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid #555; "
+            "background: #2b2b2b; } "
+            "QCheckBox::indicator:checked { background: #00d4ff; border: 1px solid #00d4ff; }"
+        )
 
-    def _setup_shortcuts(self):
+    def _setup_shortcuts(self) -> None:
+        """Registers keyboard shortcuts for quick navigation."""
         self.shortcut_cycle = QShortcut(QKeySequence("Tab"), self)
         self.shortcut_cycle.activated.connect(self.cycle_views)
+        
         self.shortcut_help = QShortcut(QKeySequence("F1"), self)
         self.shortcut_help.activated.connect(self.show_help_window)
 
-    def cycle_views(self):
+    def cycle_views(self) -> None:
+        """Cycles through the available radio button views iteratively."""
         current_id = self.radio_group.checkedId()
         next_id = (current_id + 1) % len(self.radios)
         self.radios[next_id].setChecked(True)
         self.init_graphs()
 
-    def show_help_window(self):
+    def show_help_window(self) -> None:
+        """Displays the telemetry help dialog."""
         self.help_dialog = TelemetryHelpDialog(self)
         self.help_dialog.show()
 
-    def _build_ui(self):
+    def _build_ui(self) -> None:
+        """Constructs the master layout including toolbars, HUDs, and graphs."""
         main_layout = QVBoxLayout(self)
         main_layout.setSpacing(15)
         
@@ -211,20 +364,43 @@ class TabTelemetry(QWidget):
         toolbar_layout.addWidget(self.lbl_live_status)
         toolbar_layout.addStretch()
         
-        self.btn_clear = QPushButton(" Clear History"); self.btn_clear.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload)); self.btn_clear.clicked.connect(self.clear_history)
-        self.btn_export_img = QPushButton(" Snapshot Graph"); self.btn_export_img.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton)); self.btn_export_img.clicked.connect(self.export_graph_image)
-        self.btn_export_csv = QPushButton(" Export Flight CSV"); self.btn_export_csv.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DriveFDIcon)); self.btn_export_csv.clicked.connect(self.export_csv)
-        self.btn_help = QPushButton(" Help"); self.btn_help.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxInformation)); self.btn_help.clicked.connect(self.show_help_window)
+        self.btn_clear = QPushButton(" Clear History")
+        self.btn_clear.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload))
+        self.btn_clear.clicked.connect(self.clear_history)
         
-        toolbar_layout.addWidget(self.btn_clear); toolbar_layout.addWidget(self.btn_export_img); toolbar_layout.addWidget(self.btn_export_csv); toolbar_layout.addWidget(self.btn_help)
+        self.btn_export_img = QPushButton(" Snapshot Graph")
+        self.btn_export_img.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton)
+        )
+        self.btn_export_img.clicked.connect(self.export_graph_image)
+        
+        self.btn_export_csv = QPushButton(" Export Flight CSV")
+        self.btn_export_csv.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DriveFDIcon))
+        self.btn_export_csv.clicked.connect(self.export_csv)
+        
+        self.btn_help = QPushButton(" Help")
+        self.btn_help.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxInformation)
+        )
+        self.btn_help.clicked.connect(self.show_help_window)
+        
+        toolbar_layout.addWidget(self.btn_clear)
+        toolbar_layout.addWidget(self.btn_export_img)
+        toolbar_layout.addWidget(self.btn_export_csv)
+        toolbar_layout.addWidget(self.btn_help)
+        
         main_layout.addLayout(toolbar_layout)
 
         # --- BODY SPLIT ---
         body_layout = QHBoxLayout()
         body_layout.setSpacing(15)
         
-        dash_panel = QFrame(); dash_panel.setFixedWidth(280)
-        dash_layout = QVBoxLayout(dash_panel); dash_layout.setContentsMargins(0, 0, 0, 0); dash_layout.setSpacing(10)
+        dash_panel = QFrame()
+        dash_panel.setFixedWidth(280)
+        
+        dash_layout = QVBoxLayout(dash_panel)
+        dash_layout.setContentsMargins(0, 0, 0, 0)
+        dash_layout.setSpacing(10)
 
         time_grp = QGroupBox("Mission Time")
         time_lay = QVBoxLayout(time_grp)
@@ -234,40 +410,53 @@ class TabTelemetry(QWidget):
 
         pos_grp = QGroupBox("Global Position [m]")
         pos_lay = QGridLayout(pos_grp)
-        self.hud_n = self._add_hud_row(pos_lay, 0, "North (X):"); self.hud_e = self._add_hud_row(pos_lay, 1, "East (Y):"); self.hud_d = self._add_hud_row(pos_lay, 2, "Altitude (-Z):")
+        self.hud_n = self._add_hud_row(pos_lay, 0, "North (X):")
+        self.hud_e = self._add_hud_row(pos_lay, 1, "East (Y):")
+        self.hud_d = self._add_hud_row(pos_lay, 2, "Altitude (-Z):")
         dash_layout.addWidget(pos_grp)
 
         att_grp = QGroupBox("Attitude [deg]")
         att_lay = QGridLayout(att_grp)
-        self.hud_roll = self._add_hud_row(att_lay, 0, "Roll:"); self.hud_pitch = self._add_hud_row(att_lay, 1, "Pitch:"); self.hud_yaw = self._add_hud_row(att_lay, 2, "Yaw:")
+        self.hud_roll = self._add_hud_row(att_lay, 0, "Roll:")
+        self.hud_pitch = self._add_hud_row(att_lay, 1, "Pitch:")
+        self.hud_yaw = self._add_hud_row(att_lay, 2, "Yaw:")
         dash_layout.addWidget(att_grp)
 
         lin_grp = QGroupBox("Linear Velocity [m/s]")
         lin_lay = QGridLayout(lin_grp)
-        self.hud_u = self._add_hud_row(lin_lay, 0, "Vel u:"); self.hud_v = self._add_hud_row(lin_lay, 1, "Vel v:"); self.hud_w = self._add_hud_row(lin_lay, 2, "Vel w:")
+        self.hud_u = self._add_hud_row(lin_lay, 0, "Vel u:")
+        self.hud_v = self._add_hud_row(lin_lay, 1, "Vel v:")
+        self.hud_w = self._add_hud_row(lin_lay, 2, "Vel w:")
         dash_layout.addWidget(lin_grp)
 
         ang_grp = QGroupBox("Angular Rate [rad/s]")
         ang_lay = QGridLayout(ang_grp)
-        self.hud_p = self._add_hud_row(ang_lay, 0, "Rate p:"); self.hud_q = self._add_hud_row(ang_lay, 1, "Rate q:"); self.hud_r = self._add_hud_row(ang_lay, 2, "Rate r:")
+        self.hud_p = self._add_hud_row(ang_lay, 0, "Rate p:")
+        self.hud_q = self._add_hud_row(ang_lay, 1, "Rate q:")
+        self.hud_r = self._add_hud_row(ang_lay, 2, "Rate r:")
         dash_layout.addWidget(ang_grp)
 
         dash_layout.addStretch()
         body_layout.addWidget(dash_panel)
 
-        # 2. PAINEL DIREITO: GRÁFICOS INTERATIVOS E UNITY
-        graph_panel = QWidget(); graph_layout = QVBoxLayout(graph_panel); graph_layout.setContentsMargins(0, 0, 0, 0)
+        # --- RIGHT PANEL: INTERACTIVE GRAPHS AND UNITY ---
+        graph_panel = QWidget()
+        graph_layout = QVBoxLayout(graph_panel)
+        graph_layout.setContentsMargins(0, 0, 0, 0)
         
         view_controls = QHBoxLayout()
         view_controls.addWidget(QLabel("<b>Active View (Tab):</b>"))
         
         self.radio_group = QButtonGroup(self)
-        self.radios = []
-        plot_options = ["Position", "Attitude", "Linear Velocity", "Angular Rate", "3D Digital Twin (Unity)"]
+        self.radios: List[QRadioButton] = []
+        plot_options = [
+            "Position", "Attitude", "Linear Velocity", "Angular Rate", "3D Digital Twin (Unity)"
+        ]
         
         for i, text in enumerate(plot_options):
             rb = QRadioButton(text)
-            if i == 0: rb.setChecked(True)
+            if i == 0: 
+                rb.setChecked(True)
             self.radio_group.addButton(rb, i)
             view_controls.addWidget(rb)
             self.radios.append(rb)
@@ -294,21 +483,54 @@ class TabTelemetry(QWidget):
         body_layout.addWidget(graph_panel, stretch=1)
         main_layout.addLayout(body_layout, stretch=1)
 
-    def _create_hud_value(self, default_val, color="#00d4ff", size=16):
-        lbl = QLabel(default_val); font = QFont("Consolas", size, QFont.Weight.Bold); lbl.setFont(font)
-        lbl.setStyleSheet(f"color: {color};"); lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+    def _create_hud_value(
+        self, default_val: str, color: str = "#00d4ff", size: int = 16
+    ) -> QLabel:
+        """Creates a formatted QLabel for HUD values.
+
+        Args:
+            default_val (str): The initial text content.
+            color (str): The hex color code for the text.
+            size (int): The font size.
+
+        Returns:
+            QLabel: The configured label widget.
+        """
+        lbl = QLabel(default_val)
+        font = QFont("Consolas", size, QFont.Weight.Bold)
+        lbl.setFont(font)
+        lbl.setStyleSheet(f"color: {color};")
+        lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         return lbl
 
-    def _add_hud_row(self, layout, row, title):
-        lbl_title = QLabel(title); lbl_title.setStyleSheet("color: #aaaaaa; font-size: 13px;")
+    def _add_hud_row(self, layout: QGridLayout, row: int, title: str) -> QLabel:
+        """Adds a title and value label pair to a grid layout.
+
+        Args:
+            layout (QGridLayout): The target grid layout.
+            row (int): The row index to insert into.
+            title (str): The descriptive title text.
+
+        Returns:
+            QLabel: The newly created value label reference.
+        """
+        lbl_title = QLabel(title)
+        lbl_title.setStyleSheet("color: #aaaaaa; font-size: 13px;")
         lbl_val = self._create_hud_value("0.00")
-        layout.addWidget(lbl_title, row, 0); layout.addWidget(lbl_val, row, 1)
+        
+        layout.addWidget(lbl_title, row, 0)
+        layout.addWidget(lbl_val, row, 1)
         return lbl_val
 
     # =========================================================================
-    # RECEPTOR DO ROS 2 E ATUALIZAÇÃO DA TELA
+    # ROS 2 RECEIVER AND SCREEN UPDATE
     # =========================================================================
-    def receive_online_data(self, data: dict):
+    def receive_online_data(self, data: Dict[str, float]) -> None:
+        """Processes incoming telemetry, updates HUDs, and appends to buffers.
+
+        Args:
+            data (Dict[str, float]): A dictionary containing the latest drone state.
+        """
         if self.online_start_t is None:
             self.online_start_t = data['t']
             self.lbl_live_status.setText("● TELEMETRY LIVE")
@@ -317,83 +539,154 @@ class TabTelemetry(QWidget):
         rel_time = data['t'] - self.online_start_t
 
         self.lbl_time.setText(f"{rel_time:.2f} s")
-        self.hud_n.setText(f"{data['x']:.2f}"); self.hud_e.setText(f"{data['y']:.2f}"); self.hud_d.setText(f"{-data['z']:.2f}")
-        self.hud_roll.setText(f"{data['roll'] * 57.2958:.1f}"); self.hud_pitch.setText(f"{data['pitch'] * 57.2958:.1f}"); self.hud_yaw.setText(f"{data['yaw'] * 57.2958:.1f}")
-        self.hud_u.setText(f"{data['u']:.2f}"); self.hud_v.setText(f"{data['v']:.2f}"); self.hud_w.setText(f"{data['w']:.2f}")
-        self.hud_p.setText(f"{data['p']:.2f}"); self.hud_q.setText(f"{data['q']:.2f}"); self.hud_r.setText(f"{data['r']:.2f}")
+        
+        # Position Updates
+        self.hud_n.setText(f"{data['x']:.2f}")
+        self.hud_e.setText(f"{data['y']:.2f}")
+        self.hud_d.setText(f"{-data['z']:.2f}")
+        
+        # Attitude Updates (converted to degrees)
+        self.hud_roll.setText(f"{data['roll'] * 57.2958:.1f}")
+        self.hud_pitch.setText(f"{data['pitch'] * 57.2958:.1f}")
+        self.hud_yaw.setText(f"{data['yaw'] * 57.2958:.1f}")
+        
+        # Linear Velocity Updates
+        self.hud_u.setText(f"{data['u']:.2f}")
+        self.hud_v.setText(f"{data['v']:.2f}")
+        self.hud_w.setText(f"{data['w']:.2f}")
+        
+        # Angular Rate Updates
+        self.hud_p.setText(f"{data['p']:.2f}")
+        self.hud_q.setText(f"{data['q']:.2f}")
+        self.hud_r.setText(f"{data['r']:.2f}")
 
+        # Update absolute history
         self.flight_history['t'].append(rel_time)
-        self.flight_history['x'].append(data['x']); self.flight_history['y'].append(data['y']); self.flight_history['z'].append(-data['z']) 
-        self.flight_history['roll'].append(data['roll'] * 57.2958); self.flight_history['pitch'].append(data['pitch'] * 57.2958); self.flight_history['yaw'].append(data['yaw'] * 57.2958)
-        self.flight_history['u'].append(data['u']); self.flight_history['v'].append(data['v']); self.flight_history['w'].append(data['w'])
-        self.flight_history['p'].append(data['p']); self.flight_history['q'].append(data['q']); self.flight_history['r'].append(data['r'])
+        self.flight_history['x'].append(data['x'])
+        self.flight_history['y'].append(data['y'])
+        self.flight_history['z'].append(-data['z']) 
+        
+        self.flight_history['roll'].append(data['roll'] * 57.2958)
+        self.flight_history['pitch'].append(data['pitch'] * 57.2958)
+        self.flight_history['yaw'].append(data['yaw'] * 57.2958)
+        
+        self.flight_history['u'].append(data['u'])
+        self.flight_history['v'].append(data['v'])
+        self.flight_history['w'].append(data['w'])
+        
+        self.flight_history['p'].append(data['p'])
+        self.flight_history['q'].append(data['q'])
+        self.flight_history['r'].append(data['r'])
 
+        # Shift rolling arrays left by 1 and insert newest data at the end
         for key in self.online_data.keys():
             self.online_data[key] = np.roll(self.online_data[key], -1)
             
         self.online_data['t'][-1] = rel_time
-        self.online_data['x'][-1] = data['x']; self.online_data['y'][-1] = data['y']; self.online_data['z'][-1] = -data['z'] 
-        self.online_data['roll'][-1] = data['roll'] * 57.2958; self.online_data['pitch'][-1] = data['pitch'] * 57.2958; self.online_data['yaw'][-1] = data['yaw'] * 57.2958
-        self.online_data['u'][-1] = data['u']; self.online_data['v'][-1] = data['v']; self.online_data['w'][-1] = data['w']
-        self.online_data['p'][-1] = data['p']; self.online_data['q'][-1] = data['q']; self.online_data['r'][-1] = data['r']
+        self.online_data['x'][-1] = data['x']
+        self.online_data['y'][-1] = data['y']
+        self.online_data['z'][-1] = -data['z'] 
         
+        self.online_data['roll'][-1] = data['roll'] * 57.2958
+        self.online_data['pitch'][-1] = data['pitch'] * 57.2958
+        self.online_data['yaw'][-1] = data['yaw'] * 57.2958
+        
+        self.online_data['u'][-1] = data['u']
+        self.online_data['v'][-1] = data['v']
+        self.online_data['w'][-1] = data['w']
+        
+        self.online_data['p'][-1] = data['p']
+        self.online_data['q'][-1] = data['q']
+        self.online_data['r'][-1] = data['r']
+        
+        # Update active graph curves
         if self.graph_items:
             is_auto_scroll = self.chk_autoscroll.isChecked()
-            for curve, plot_widget, data_key, _ in self.graph_items:
+            for curve, _, data_key, _ in self.graph_items:
                 if is_auto_scroll:
                     curve.setData(self.online_data['t'], self.online_data[data_key])
                 else:
                     curve.setData(self.flight_history['t'], self.flight_history[data_key])
 
     # =========================================================================
-    # INICIALIZAÇÃO DE GRÁFICOS (E UNITY PLACEHOLDER)
+    # GRAPH INITIALIZATION (AND UNITY PLACEHOLDER)
     # =========================================================================
-    def init_graphs(self):
+    def init_graphs(self) -> None:
+        """Clears and re-initializes the active layout of graph widgets."""
         self.graph_widget.clear() 
         self.graph_items = []
         view_idx = self.radio_group.checkedId()
         
-        pens = [pg.mkPen(color='#f44336', width=2), pg.mkPen(color='#4caf50', width=2), pg.mkPen(color='#00d4ff', width=2)] 
+        pens = [
+            pg.mkPen(color='#f44336', width=2), 
+            pg.mkPen(color='#4caf50', width=2), 
+            pg.mkPen(color='#00d4ff', width=2)
+        ] 
 
-        def _create_plot(row, col, title, y_label):
+        def _create_plot(row: int, col: int, title: str, y_label: str) -> pg.PlotItem:
+            """Helper to instantiate and configure a standard 2D plot."""
             p = self.graph_widget.addPlot(row=row, col=col)
-            p.setLabel('left', y_label); p.setLabel('bottom', 'Time [s]')
+            p.setLabel('left', y_label)
+            p.setLabel('bottom', 'Time [s]')
             p.setTitle(title, color='#dddddd')
-            p.setMouseEnabled(x=True, y=True); p.enableAutoRange(axis='y') 
-            p.setDownsampling(ds=True, auto=True, mode='peak'); p.setClipToView(True)
-            if self.chk_autoscroll.isChecked(): p.enableAutoRange(axis='x') 
+            p.setMouseEnabled(x=True, y=True)
+            p.enableAutoRange(axis='y') 
+            p.setDownsampling(ds=True, auto=True, mode='peak')
+            p.setClipToView(True)
+            
+            if self.chk_autoscroll.isChecked(): 
+                p.enableAutoRange(axis='x') 
+                
             p.showGrid(x=True, y=True, alpha=0.3)
             return p
 
         if view_idx == 0: 
-            keys = ['x', 'y', 'z']; labels = ['North [m]', 'East [m]', 'Altitude [m]']
+            keys = ['x', 'y', 'z']
+            labels = ['North [m]', 'East [m]', 'Altitude [m]']
             for i in range(3):
-                p = _create_plot(0, i, labels[i], labels[i]); curve = p.plot(pen=pens[i])
+                p = _create_plot(0, i, labels[i], labels[i])
+                curve = p.plot(pen=pens[i])
                 self.graph_items.append((curve, p, keys[i], labels[i]))
 
         elif view_idx == 1: 
-            keys = ['roll', 'pitch', 'yaw']; labels = ['Roll [deg]', 'Pitch [deg]', 'Yaw [deg]']
+            keys = ['roll', 'pitch', 'yaw']
+            labels = ['Roll [deg]', 'Pitch [deg]', 'Yaw [deg]']
             for i in range(3):
-                p = _create_plot(0, i, labels[i], labels[i]); curve = p.plot(pen=pens[i])
+                p = _create_plot(0, i, labels[i], labels[i])
+                curve = p.plot(pen=pens[i])
                 self.graph_items.append((curve, p, keys[i], labels[i]))
                 
         elif view_idx == 2: 
-            keys = ['u', 'v', 'w']; labels = ['u [m/s]', 'v [m/s]', 'w [m/s]']
+            keys = ['u', 'v', 'w']
+            labels = ['u [m/s]', 'v [m/s]', 'w [m/s]']
             for i in range(3):
-                p = _create_plot(0, i, labels[i], labels[i]); curve = p.plot(pen=pens[i])
+                p = _create_plot(0, i, labels[i], labels[i])
+                curve = p.plot(pen=pens[i])
                 self.graph_items.append((curve, p, keys[i], labels[i]))
 
         elif view_idx == 3: 
-            keys = ['p', 'q', 'r']; labels = ['p [rad/s]', 'q [rad/s]', 'r [rad/s]']
+            keys = ['p', 'q', 'r']
+            labels = ['p [rad/s]', 'q [rad/s]', 'r [rad/s]']
             for i in range(3):
-                p = _create_plot(0, i, labels[i], labels[i]); curve = p.plot(pen=pens[i])
+                p = _create_plot(0, i, labels[i], labels[i])
+                curve = p.plot(pen=pens[i])
                 self.graph_items.append((curve, p, keys[i], labels[i]))
 
         elif view_idx == 4:
             self.chk_autoscroll.setEnabled(False)
-            p = self.graph_widget.addPlot(); p.hideAxis('left'); p.hideAxis('bottom')
-            html_text = '<div style="text-align: center"><span style="color: #00d4ff; font-size: 24pt;">Unity 3D Digital Twin</span><br><br><span style="color: #aaaaaa; font-size: 14pt;">Placeholder ready for WebEngine integration</span></div>'
-            text_item = pg.TextItem(html=html_text, anchor=(0.5, 0.5)); p.addItem(text_item); text_item.setPos(0.5, 0.5) 
+            p = self.graph_widget.addPlot()
+            p.hideAxis('left')
+            p.hideAxis('bottom')
+            
+            html_text = (
+                '<div style="text-align: center">'
+                '<span style="color: #00d4ff; font-size: 24pt;">Unity 3D Digital Twin</span>'
+                '<br><br><span style="color: #aaaaaa; font-size: 14pt;">'
+                'Placeholder ready for WebEngine integration</span></div>'
+            )
+            text_item = pg.TextItem(html=html_text, anchor=(0.5, 0.5))
+            p.addItem(text_item)
+            text_item.setPos(0.5, 0.5) 
             return
 
         self.chk_autoscroll.setEnabled(True)
@@ -402,97 +695,146 @@ class TabTelemetry(QWidget):
                 curve.setData(self.flight_history['t'], self.flight_history[data_key])
 
     # =========================================================================
-    # FERRAMENTAS EXTRAS (CLEAR, CSV E IMAGEM OFF-SCREEN)
+    # EXTRA TOOLS (CLEAR, CSV AND OFF-SCREEN IMAGE)
     # =========================================================================
-    def clear_history(self):
-        msg = CustomMessageBox("Clear Data", "Are you sure you want to clear the telemetry history?", "You won't be able to export this flight anymore.", msg_type="question", parent=self)
+    def clear_history(self) -> None:
+        """Clears the background memory and resets the dashboard timeline."""
+        msg = CustomMessageBox(
+            "Clear Data", 
+            "Are you sure you want to clear the telemetry history?", 
+            "You won't be able to export this flight anymore.", 
+            msg_type="question", parent=self
+        )
         if msg.exec() == QMessageBox.StandardButton.Yes:
             self.online_start_t = None
             self.flight_history = self._create_empty_history()
             self._init_rolling_buffer()
+            
             self.lbl_live_status.setText("● SYSTEM STANDBY")
             self.lbl_live_status.setStyleSheet("color: #aaaaaa; font-weight: bold; font-size: 14px;")
+            
             self.init_graphs()
 
-    def export_csv(self):
+    def export_csv(self) -> None:
+        """Aggregates the flight history dictionary into a NumPy matrix and exports to CSV."""
         if not self.flight_history['t']:
-            msg = CustomMessageBox("Info", "No data to export.", "The flight history is currently empty.", msg_type="info", parent=self)
+            msg = CustomMessageBox(
+                "Info", "No data to export.", 
+                "The flight history is currently empty.", msg_type="info", parent=self
+            )
             msg.exec()
             return
             
-        file_path, _ = QFileDialog.getSaveFileName(self, "Export Flight Log (CSV)", "", "CSV Files (*.csv)")
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Export Flight Log (CSV)", "", "CSV Files (*.csv)"
+        )
+        
         if file_path:
-            if not file_path.endswith('.csv'): file_path += '.csv'
+            if not file_path.endswith('.csv'): 
+                file_path += '.csv'
             try:
                 data_matrix = np.column_stack((
-                    self.flight_history['t'], self.flight_history['x'], self.flight_history['y'], self.flight_history['z'],
-                    self.flight_history['roll'], self.flight_history['pitch'], self.flight_history['yaw'],
-                    self.flight_history['u'], self.flight_history['v'], self.flight_history['w'],
-                    self.flight_history['p'], self.flight_history['q'], self.flight_history['r']
+                    self.flight_history['t'], self.flight_history['x'], 
+                    self.flight_history['y'], self.flight_history['z'],
+                    self.flight_history['roll'], self.flight_history['pitch'], 
+                    self.flight_history['yaw'], self.flight_history['u'], 
+                    self.flight_history['v'], self.flight_history['w'],
+                    self.flight_history['p'], self.flight_history['q'], 
+                    self.flight_history['r']
                 ))
-                header = ["Time_s", "Pos_N_m", "Pos_E_m", "Pos_Alt_m", "Roll_deg", "Pitch_deg", "Yaw_deg", 
-                          "Vel_u_ms", "Vel_v_ms", "Vel_w_ms", "Rate_p_rads", "Rate_q_rads", "Rate_r_rads"]
-                np.savetxt(file_path, data_matrix, delimiter=",", header=",".join(header), comments="", fmt='%.6f')
-                msg = CustomMessageBox("Success", "Flight Log Exported!", f"Data saved to:\n{file_path}", msg_type="success", parent=self)
+                header = [
+                    "Time_s", "Pos_N_m", "Pos_E_m", "Pos_Alt_m", 
+                    "Roll_deg", "Pitch_deg", "Yaw_deg", "Vel_u_ms", 
+                    "Vel_v_ms", "Vel_w_ms", "Rate_p_rads", "Rate_q_rads", "Rate_r_rads"
+                ]
+                np.savetxt(
+                    file_path, data_matrix, delimiter=",", 
+                    header=",".join(header), comments="", fmt='%.6f'
+                )
+                
+                msg = CustomMessageBox(
+                    "Success", "Flight Log Exported!", 
+                    f"Data saved to:\n{file_path}", msg_type="success", parent=self
+                )
                 msg.exec()
-            except Exception as e:
-                msg = CustomMessageBox("Export Error", "Failed to export CSV.", str(e), msg_type="error", parent=self)
+            except Exception as err:
+                msg = CustomMessageBox(
+                    "Export Error", "Failed to export CSV.", 
+                    str(err), msg_type="error", parent=self
+                )
                 msg.exec()
 
-    def export_graph_image(self):
+    def export_graph_image(self) -> None:
+        """Opens the export options dialog and renders the selection to a PNG."""
         if not self.flight_history['t']:
-            msg = CustomMessageBox("Info", "No data to export.", "The flight history is empty.", msg_type="info", parent=self)
+            msg = CustomMessageBox(
+                "Info", "No data to export.", 
+                "The flight history is empty.", msg_type="info", parent=self
+            )
             msg.exec()
             return
 
         dialog = ExportGraphDialog(self)
         if dialog.exec():
             idx = dialog.selected_index
-            label_text, keys = dialog.options[idx]
+            _, keys = dialog.options[idx]
             
-            file_path, _ = QFileDialog.getSaveFileName(self, "Save Graph Snapshot", "", "PNG Images (*.png)")
+            file_path, _ = QFileDialog.getSaveFileName(
+                self, "Save Graph Snapshot", "", "PNG Images (*.png)"
+            )
             if file_path:
-                if not file_path.endswith('.png'): file_path += '.png'
+                if not file_path.endswith('.png'): 
+                    file_path += '.png'
                 try:
                     if not keys: 
                         pixmap = self.graph_widget.grab()
                     else:
-                        # RENDERIZAÇÃO INVISÍVEL OFF-SCREEN
+                        # INVISIBLE OFF-SCREEN RENDERING
                         off_widget = pg.GraphicsLayoutWidget()
                         
-                        # Calcula quantas linhas o grid terá (max 3 colunas por linha)
+                        # Calculates how many rows the grid will have (max 3 columns per row)
                         n_plots = len(keys)
                         cols = 3 if n_plots >= 3 else n_plots
                         rows = (n_plots + cols - 1) // cols
                         
-                        # Tamanho dinâmico para não achatar
+                        # Dynamic size to avoid squashing
                         off_widget.resize(1100, 300 * rows)
                         off_widget.setBackground('#2b2b2b')
                         
-                        labels_dict = {'x': 'North [m]', 'y': 'East [m]', 'z': 'Altitude [m]',
-                                       'roll': 'Roll [deg]', 'pitch': 'Pitch [deg]', 'yaw': 'Yaw [deg]',
-                                       'u': 'u [m/s]', 'v': 'v [m/s]', 'w': 'w [m/s]',
-                                       'p': 'p [rad/s]', 'q': 'q [rad/s]', 'r': 'r [rad/s]'}
+                        labels_dict = {
+                            'x': 'North [m]', 'y': 'East [m]', 'z': 'Altitude [m]',
+                            'roll': 'Roll [deg]', 'pitch': 'Pitch [deg]', 'yaw': 'Yaw [deg]',
+                            'u': 'u [m/s]', 'v': 'v [m/s]', 'w': 'w [m/s]',
+                            'p': 'p [rad/s]', 'q': 'q [rad/s]', 'r': 'r [rad/s]'
+                        }
                         
                         pens = ['#f44336', '#4caf50', '#00d4ff']
                         
                         for i, key in enumerate(keys):
-                            r = i // cols
-                            c = i % cols
-                            p = off_widget.addPlot(row=r, col=c)
+                            r_idx = i // cols
+                            c_idx = i % cols
+                            p = off_widget.addPlot(row=r_idx, col=c_idx)
                             p.setLabel('left', labels_dict[key])
                             p.setLabel('bottom', 'Time [s]')
                             p.showGrid(x=True, y=True, alpha=0.3)
                             
-                            curve = p.plot(pen=pg.mkPen(color=pens[c], width=2))
+                            curve = p.plot(pen=pg.mkPen(color=pens[c_idx], width=2))
                             curve.setData(self.flight_history['t'], self.flight_history[key])
                             
                         QApplication.processEvents() 
                         pixmap = off_widget.grab()
                         
                     pixmap.save(file_path, "PNG")
-                    msg = CustomMessageBox("Success", "Snapshot saved!", f"High-resolution image rendered to:\n{file_path}", msg_type="success", parent=self)
+                    
+                    msg = CustomMessageBox(
+                        "Success", "Snapshot saved!", 
+                        f"High-resolution image rendered to:\n{file_path}", 
+                        msg_type="success", parent=self
+                    )
                     msg.exec()
-                except Exception as e:
-                    msg = CustomMessageBox("Export Error", "Failed to render and save image.", str(e), msg_type="error", parent=self)
+                except Exception as err:
+                    msg = CustomMessageBox(
+                        "Export Error", "Failed to render and save image.", 
+                        str(err), msg_type="error", parent=self
+                    )
                     msg.exec()
