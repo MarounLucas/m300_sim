@@ -118,6 +118,15 @@ class CascadeController:
             self.max_roll_pitch_rate,
             self.max_yaw_rate
         ])
+    
+    def reset_integrals(self) -> None:
+        """Reseta as memórias integrais e derivativas para evitar socos ao trocar de modo."""
+        self.rate_int_error.fill(0.0)
+        self.xy_vel_int_error.fill(0.0)
+        self.z_vel_int_error = 0.0
+        self.filtered_rate_derivative.fill(0.0)
+        self.filtered_xy_vel_derivative.fill(0.0)
+        self.filtered_z_vel_derivative = 0.0
         
     def update_state(self, state: np.ndarray) -> None:
         '''

@@ -6,6 +6,10 @@ handling waypoint tracking, stabilization, and smooth transitions between
 AUTO and MANUAL flight modes using 5th-order polynomial recovery paths.
 """
 
+import os
+import yaml
+from ament_index_python.packages import get_package_share_directory
+
 import rclpy
 from rclpy.node import Node
 from scipy.spatial.transform import Rotation
@@ -13,29 +17,11 @@ import numpy as np
 
 from nav_msgs.msg import Odometry
 from m300_msgs.msg import FlightMode
+from std_msgs.msg import Empty
 
 from .trajectory import PathManager, PolinomialTraj
 
 class TrajectoryNode(Node):
-    """
-    ROS 2 Node that manages the flight mission states and publishes trajectory references.
-
-    Attributes
-    ----------
-    path_manager : PathManager
-        Instance responsible for calculating the mathematical path.
-    mission_state : str
-        Current state of the FSM ('TRACKING', 'STABILIZING', 'MANUAL_MODE', 'RECOVERING').
-    traj_time : float
-        Elapsed time in the nominal trajectory execution.
-    segment_idx : int
-        Index of the current waypoint segment being tracked.
-    curr_position : np.ndarray
-        The actual spatial position of the UAV [x, y, z] from telemetry.
-    current_fmd : int
-        The active flight mode (e.g., AUTO or MANUAL).
-    """
-
     def __init__(self) -> None:
         super().__init__('trajectory_node')
 
@@ -51,10 +37,13 @@ class TrajectoryNode(Node):
         self.path_manager.generate_path()
 
         # 2. Unified Mission FSM Configuration
-        self.mission_state = "TRACKING"
+        self.mission_state = "IDLE"
         self.traj_time = 0.0
         self.segment_idx = 0
+        
         self.curr_position = np.zeros(3)
+        self.idle_pos = np.zeros(3)  # Posição onde o drone está fisicamente estacionado no chão
+        
         self.wp_tolerance = 0.5
         self.dt = 1.0 / 100.0  
 
@@ -71,43 +60,22 @@ class TrajectoryNode(Node):
         self.traj_pub = self.create_publisher(Odometry, '/m300_sim/trajectory_topic', 10)
         self.state_sub = self.create_subscription(Odometry, '/m300_sim/telemetry_topic', self.pose_callback, 10)
         self.fmd_sub = self.create_subscription(FlightMode, '/m300_sim/flight_mode', self.fmd_callback, 10)
+        self.start_sub = self.create_subscription(Empty, '/m300_sim/start_mission', self.start_callback, 10)
 
         # Main trajectory control loop timer
         self.create_timer(self.dt, self.traj_callback)
 
     def pose_callback(self, msg: Odometry) -> None:
-        """
-        Updates the UAV's physical position from telemetry data.
-
-        Parameters
-        ----------
-        msg : Odometry
-            The incoming odometry message containing the current pose.
-        """
         px = msg.pose.pose.position.x
         py = msg.pose.pose.position.y
         pz = msg.pose.pose.position.z
         self.curr_position[0:3] = px, py, pz
 
     def fmd_callback(self, msg: FlightMode) -> None:
-        """
-        Manages flight mode transitions and trajectory recovery logic.
-
-        Handles the interruption of the mission (AUTO -> MANUAL) by freezing 
-        the expected route state, and manages the resumption (MANUAL -> AUTO) 
-        by generating a smooth polynomial recovery path.
-
-        Parameters
-        ----------
-        msg : FlightMode
-            The incoming flight mode message.
-        """
         # Transition: AUTO -> MANUAL (Mission Interruption)
         if self.current_fmd == FlightMode.AUTO and msg.mode == FlightMode.MANUAL:
             self.get_logger().info('Interruption detected: Switched to MANUAL mode. Freezing route.')
             self.mission_state = "MANUAL_MODE"
-            
-            # Capture the exact chronological state where the UAV should be
             self.paused_pos, _, self.paused_yaw, _ = self.path_manager.get_desired_state(self.traj_time)
             
         # Transition: MANUAL -> AUTO (Mission Resumption)
@@ -116,32 +84,80 @@ class TrajectoryNode(Node):
             self.mission_state = "RECOVERING"
             self.recovery_time = 0.0
             
-            # Ensure the freeze point is updated
             self.paused_pos, _, self.paused_yaw, _ = self.path_manager.get_desired_state(self.traj_time)
+            calc_time = self.path_manager.calculate_segment_time(self.curr_position, self.paused_pos)
+            self.recovery_duration = max(3.0, calc_time) 
             
-            # Calculate required safe flight time based on PathManager constraints
-            self.recovery_duration = self.path_manager.calculate_segment_time(self.curr_position, self.paused_pos)
-            
-            # Dynamically generate a new polynomial connecting the current manual position to the saved route point
             self.recovery_traj = PolinomialTraj(self.curr_position, self.paused_pos, self.recovery_duration)
             self.recovery_traj.generate_path()
             
         self.current_fmd = msg.mode
 
-    def traj_callback(self) -> None:
-        """
-        Executes the temporal control logic according to the FSM state.
+    def start_callback(self, msg: Empty):
+        """Lê os parâmetros novos e inicia o procedimento de TAKEOFF suave."""
+        if self.mission_state == "IDLE":
+            self.reload_parameters()
+            
+            if len(self.path_manager.waypoints) > 0:
+                target_wp = self.path_manager.waypoints[0][0:3]
+                
+                # Gera uma transição lenta do solo até o ponto inicial da missão (2 m/s de média, mínimo 3s)
+                dist = np.linalg.norm(self.curr_position - target_wp)
+                self.recovery_duration = max(3.0, dist / 2.0)
+                
+                self.recovery_traj = PolinomialTraj(self.curr_position, target_wp, self.recovery_duration)
+                self.recovery_traj.generate_path()
+                self.recovery_time = 0.0
+                
+                self.get_logger().info(f'Iniciando TAKEOFF suave (Duração estimada: {self.recovery_duration:.1f}s)...')
+                self.mission_state = "TAKEOFF"
 
-        Evaluates the current mission state, updates the expected kinematic 
-        references (position, velocity, yaw), and publishes them as an 
-        Odometry message to be consumed by the inner control loops.
-        """
+    def reload_parameters(self):
+        pkg_share = get_package_share_directory('m300_sim')
+        ms_yaml = os.path.join(pkg_share, 'config', 'mission_params.yaml')
+        
+        try:
+            with open(ms_yaml, 'r') as f:
+                ms_data = yaml.safe_load(f)['trajectory_node']['ros__parameters']
+                wp_flat = ms_data['waypoints']
+                yaw_mode_param = ms_data['yaw_mode']
+                
+                waypoints = [wp_flat[i:i+3] for i in range(0, len(wp_flat), 3)]
+                
+                if len(waypoints) > 0:
+                    self.path_manager = PathManager(waypoints, yaw_mode=yaw_mode_param)
+                    self.path_manager.generate_path()
+                    self.traj_time = 0.0
+                    self.segment_idx = 0
+        except Exception as e:
+            self.get_logger().error(f"Falha ao carregar novos waypoints: {e}")
+
+    def traj_callback(self) -> None:
         desire_pos = np.zeros(3)
         desire_vel = np.zeros(3)
         desire_yaw = 0.0
 
-        # --- State 1: Normal Route Tracking ---
-        if self.mission_state == "TRACKING":
+        # --- State 0: Aguardando no Chão ---
+        if self.mission_state == "IDLE":
+            # Mantém estático onde pousou
+            desire_pos = self.idle_pos.copy()
+            desire_vel = np.zeros(3)
+
+        # --- State 1: Decolagem e Interceptação do WP inicial ---
+        elif self.mission_state == "TAKEOFF":
+            self.recovery_time += self.dt
+            desire_pos = self.recovery_traj.sample_position(self.recovery_time)
+            desire_vel = self.recovery_traj.sample_velocity(self.recovery_time)
+            
+            # Ao alcançar o ponto inicial, troca o estado para TRACKING
+            if self.recovery_time >= self.recovery_duration:
+                self.get_logger().info('TAKEOFF finalizado. Executando a rota matemática...')
+                self.traj_time = 0.0
+                self.segment_idx = 0
+                self.mission_state = "TRACKING"
+
+        # --- State 2: Rota Normal ---
+        elif self.mission_state == "TRACKING":
             self.traj_time += self.dt
             desire_pos, desire_vel, desire_yaw, _ = self.path_manager.get_desired_state(self.traj_time)
 
@@ -150,7 +166,7 @@ class TrajectoryNode(Node):
                 self.get_logger().info(f'Stabilizing/Approaching waypoint {self.segment_idx + 1}')
                 self.mission_state = "STABILIZING"
         
-        # --- State 2: Stabilization and Waypoint Verification ---
+        # --- State 3: Estabilização de Waypoint ---
         elif self.mission_state == "STABILIZING":
             desire_pos, desire_vel, desire_yaw, _ = self.path_manager.get_desired_state(self.traj_time)
             target_pos = self.path_manager.waypoints[self.segment_idx + 1][0:3]
@@ -162,28 +178,43 @@ class TrajectoryNode(Node):
                     self.get_logger().info(f'Proceeding to waypoint {self.segment_idx + 2}')
                     self.mission_state = "TRACKING"
                 else:
-                    # End of route reached: Maintain fixed hover indefinitely.
-                    # Trajectory time stops advancing; desired velocity remains zero.
-                    pass
+                    self.get_logger().info('Fim da rota atingido. Iniciando POUSO (LANDING)...')
+                    ground_pos = self.curr_position.copy()
+                    ground_pos[2] = 0.0 # Define a altitude zero exatamente abaixo de onde parou
+                    
+                    dist = np.linalg.norm(self.curr_position - ground_pos)
+                    self.recovery_duration = max(3.0, dist / 2.0) 
+                    self.recovery_traj = PolinomialTraj(self.curr_position, ground_pos, self.recovery_duration)
+                    self.recovery_traj.generate_path()
+                    
+                    self.recovery_time = 0.0
+                    self.mission_state = "LANDING"
 
-        # --- State 3: Active Manual Mode (Free flight via Joystick) ---
+        # --- State 4: Pouso Automático ---
+        elif self.mission_state == "LANDING":
+            self.recovery_time += self.dt
+            desire_pos = self.recovery_traj.sample_position(self.recovery_time)
+            desire_vel = self.recovery_traj.sample_velocity(self.recovery_time)
+            
+            if self.recovery_time >= self.recovery_duration:
+                self.get_logger().info('Pouso finalizado com sucesso. Retornando ao estado IDLE.')
+                self.idle_pos = self.curr_position.copy()
+                self.idle_pos[2] = 0.0 # Garante fixação no chão
+                self.mission_state = "IDLE"
+
+        # --- State 5: Piloto Manual ---
         elif self.mission_state == "MANUAL_MODE":
-            # While the pilot is in control, publish the physical position as a 
-            # smooth reference to avoid inner loop (CascadeController) jumps.
             desire_pos = self.curr_position.copy()
             desire_vel = np.zeros(3)
             desire_yaw = self.paused_yaw
 
-        # --- State 4: Smooth Trajectory Recovery ---
+        # --- State 6: Transição Suave Manual -> Auto ---
         elif self.mission_state == "RECOVERING":
             self.recovery_time += self.dt
-            
-            # Sample the transition polynomial
             desire_pos = self.recovery_traj.sample_position(self.recovery_time)
             desire_vel = self.recovery_traj.sample_velocity(self.recovery_time)
             desire_yaw = self.paused_yaw
 
-            # When the transition curve ends, return to the original chronological route
             if self.recovery_time >= self.recovery_duration:
                 self.get_logger().info('UAV successfully repositioned on route. Resuming mission.')
                 if self.traj_time >= self.path_manager.total_time:
@@ -191,7 +222,7 @@ class TrajectoryNode(Node):
                 else:
                     self.mission_state = "TRACKING"
 
-        # --- Publish Odometry Reference ---
+        # --- Publicação de Referência de Odometria ---
         msg = Odometry()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = "map"
@@ -212,7 +243,6 @@ class TrajectoryNode(Node):
         msg.twist.twist.linear.z = float(desire_vel[2])
 
         self.traj_pub.publish(msg)
-
 
 def main(args=None) -> None:
     rclpy.init(args=args)

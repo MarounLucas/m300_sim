@@ -1,3 +1,8 @@
+import os
+import yaml
+from ament_index_python.packages import get_package_share_directory
+from std_msgs.msg import Empty
+
 import rclpy
 from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
@@ -75,6 +80,8 @@ class Controller(Node):
         self.fmd_sub = self.create_subscription(FlightMode, "/m300_sim/flight_mode", self.fmd_callback, 10)
 
         self.cmd_sub = self.create_subscription(TwistStamped, "/m300_sim/manual_cmd", self.cmd_callback, 10)
+
+        self.start_sub = self.create_subscription(Empty, '/m300_sim/start_mission', self.start_callback, 10)
         
 
 
@@ -89,6 +96,36 @@ class Controller(Node):
         self.create_timer(1/50, self.loop_50hz, callback_group=self.cb_group_50hz)
         self.create_timer(1/250, self.loop_250hz, callback_group=self.cb_group_250hz)
         self.create_timer(1/1000, self.loop_1000hz, callback_group=self.cb_group_1000hz)
+
+    def start_callback(self, msg: Empty):
+        self.get_logger().info("Sincronizando parâmetros de controle atualizados da GUI...")
+        self.reload_parameters()
+
+    def reload_parameters(self):
+        pkg_share = get_package_share_directory('m300_sim')
+        ac_yaml = os.path.join(pkg_share, 'config', 'aircraft_params.yaml')
+        
+        try:
+            with open(ac_yaml, 'r') as f:
+                ac_data = yaml.safe_load(f)['controller_node']['ros__parameters']
+                
+                with self.lock:
+                    self.controller.mass = ac_data['mass']
+                    self.controller.min_z_vel = ac_data['max_ascent_speed']
+                    self.controller.max_z_vel = ac_data['max_descent_speed']
+                    self.controller.cruise_vel = ac_data['cruise_speed']
+                    self.controller.max_tilt = ac_data['max_tilt_angle']
+                    self.controller.max_roll_pitch_rate = ac_data['max_roll_pitch_rate']
+                    self.controller.max_yaw_rate = ac_data['max_yaw_rate']
+                    
+                    self.controller.max_rate = np.array([
+                        ac_data['max_roll_pitch_rate'], 
+                        ac_data['max_roll_pitch_rate'], 
+                        ac_data['max_yaw_rate']
+                    ])
+        except Exception as e:
+            self.get_logger().error(f"Falha ao carregar novos limites de controle: {e}")
+
 
 
     def loop_50hz(self):
@@ -205,6 +242,13 @@ class Controller(Node):
 
     def fmd_callback(self, msg:FlightMode):
         if self.current_fmd != msg.mode:
+            with self.lock:
+                self.controller.reset_integrals() 
+                
+                if msg.mode == FlightMode.AUTO:
+                    self.controller.des_position[:] = self.state[9:12]
+                    self.controller.des_velocity.fill(0.0)
+                    
             self.current_fmd = msg.mode
         
     

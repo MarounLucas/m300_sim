@@ -1,3 +1,8 @@
+import os
+import yaml
+from ament_index_python.packages import get_package_share_directory
+from std_msgs.msg import Empty
+
 import rclpy
 from rclpy.node import Node
 
@@ -79,7 +84,10 @@ class DynamicNode(Node):
 
         # Initializing engines
         self.u_virtual = np.zeros(4)
-        omega_hover = np.sqrt((self.ac_model.mass * 9.81) / (4.0 * self.ac_model.k_t0))
+        
+        # CORREÇÃO: Proteção contra divisão por zero caso o arquivo YAML esteja com zeros.
+        safe_k_t0 = self.ac_model.k_t0 if self.ac_model.k_t0 > 0.0 else 0.0002433
+        omega_hover = np.sqrt((self.ac_model.mass * 9.81) / (4.0 * safe_k_t0))
 
         # Initial state 
         self.init_state = np.array([
@@ -96,16 +104,8 @@ class DynamicNode(Node):
 
         # Wind
         self.curr_wind = np.zeros(3)
-        w_type = "constant"
-        w_mag, w_head, w_elev, w_gust = 5.0, 45.0, 45.0, 0.0
 
-        self.wind_manager = WindManager(
-            wind_type=w_type, 
-            magnitude=w_mag, 
-            heading=w_head * D2R, 
-            elevation=w_elev * D2R, 
-            gust_magnitude=w_gust
-        )
+        self.wind_manager = WindManager(wind_type="none", magnitude=0.0, heading=0.0, elevation=0.0, gust_magnitude=0.0)
 
         self.dt = 1/1000
         self.tick_count = 0
@@ -114,8 +114,71 @@ class DynamicNode(Node):
         self.get_logger().info(f'Telemetry Publisher Iniciado')
 
         self.ctrl_sub = self.create_subscription(WrenchStamped, '/m300_sim/control_topic', self.cmd_callback, 10)
+
+        self.start_sub = self.create_subscription(Empty, '/m300_sim/start_mission', self.start_callback, 10)
+        self.reload_parameters() # Lê a configuração do yaml na hora de nascer
+
         self.create_timer(self.dt, self.physics_loop)
 
+
+    def start_callback(self, msg: Empty):
+        self.get_logger().info("Sincronizando parâmetros de aerodinâmica e ventos da GUI...")
+        self.reload_parameters()
+
+    def reload_parameters(self):
+        pkg_share = get_package_share_directory('m300_sim')
+        ac_yaml = os.path.join(pkg_share, 'config', 'aircraft_params.yaml')
+        ms_yaml = os.path.join(pkg_share, 'config', 'mission_params.yaml')
+        
+        try:
+            # 1. Carrega parâmetros físicos da Aeronave
+            with open(ac_yaml, 'r') as f:
+                ac_data = yaml.safe_load(f)['quadcopter_node']['ros__parameters']
+                self.ac_model.mass = ac_data['mass']
+                self.ac_model.k_t0 = ac_data['k_t0']
+                self.ac_model.k_q0 = ac_data['k_q0']
+                self.ac_model.dx_arm = ac_data['dx_arm']
+                self.ac_model.dy_fw = ac_data['dy_fw']
+                self.ac_model.dy_bw = ac_data['dy_bw']
+                self.ac_model.omega_min = ac_data['omega_min']
+                self.ac_model.omega_max = ac_data['omega_max']
+                
+                self.ac_params = np.array([
+                    ac_data['mass'], ac_data['jx'], ac_data['jy'], ac_data['jz'], ac_data['jxz'], 
+                    ac_data['cd'], ac_data['k_t0'], ac_data['k_q0'],
+                    ac_data['tau'], ac_data['kp'], ac_data['xi'],
+                    ac_data['dx_arm'], ac_data['dy_fw'], ac_data['dy_bw'], 
+                ], dtype=np.float64)
+                
+                # Recalcula as equações de empuxo da hélice nova
+                self.mixer = Mixer(self.ac_model)
+                
+            # 2. Carrega parâmetros de Clima e Vento da Missão
+            with open(ms_yaml, 'r') as f:
+                ms_data = yaml.safe_load(f)['trajectory_node']['ros__parameters']
+                w_type_raw = ms_data['wind_type'].lower()
+                w_mag = ms_data['wind_magnitude']
+                w_head = ms_data['wind_heading'] * D2R
+                w_elev = ms_data['wind_elevation'] * D2R
+                w_gust = ms_data['wind_gust']
+                
+                # Traduz as palavras bonitas da interface para o que o WindManager entende
+                w_type = "none"
+                if "constant" in w_type_raw: w_type = "constant"
+                elif "dryden gust" in w_type_raw: w_type = "dryden"
+                elif "dryden low" in w_type_raw: w_type = "dryden_lp"
+                elif "sinusoid" in w_type_raw: w_type = "sinusoidal"
+                
+                self.wind_manager = WindManager(
+                    wind_type=w_type, 
+                    magnitude=w_mag, 
+                    heading=w_head, 
+                    elevation=w_elev, 
+                    gust_magnitude=w_gust
+                )
+                
+        except Exception as e:
+            self.get_logger().error(f"Falha na sincronização a quente (Hot-Reload): {e}")
 
     def cmd_callback(self, msg:WrenchStamped):
         force_z = msg.wrench.force.z
