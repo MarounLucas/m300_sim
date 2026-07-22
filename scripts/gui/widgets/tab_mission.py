@@ -10,7 +10,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import matplotlib
 import numpy as np
@@ -120,12 +120,13 @@ class MissionHelpDialog(QDialog):
             "- <i>Forward:</i> continuously points the nose to the velocity vector.<br>"
             "- <i>Target:</i> nose always points to a specific XYZ coordinate lock.</li></ul>"
             "<h3>3. Environment & Location Parameters</h3><ul>"
+            "<li><b>Data Source Toggle:</b> Choose <i>Manual Configuration</i> to input wind data "
+            "manually, or <i>Current Real-Time Weather</i> to reveal location settings and sync "
+            "actual weather conditions. Fields are visibly locked in Real-Time mode to ensure data integrity.</li>"
             "<li><b>Wind Type:</b> Simulation wind disturbance model.</li>"
             "<li><b>Base Magnitude [m/s]:</b> Base persistent wind speed.</li>"
             "<li><b>Heading / Elevation [&deg;]:</b> Wind direction vector angles.</li>"
             "<li><b>Max Gust [m/s]:</b> Maximum magnitude added dynamically by gusts.</li>"
-            "<li><b>OpenWeather Data:</b> Connects to real-time meteorological servers "
-            "based on global coordinates to fetch live wind speeds, heading and gusts!</li>"
             "</ul></body></html>"
         )
         browser.setHtml(html_content)
@@ -240,7 +241,7 @@ class TabMission(QWidget):
         super().__init__()
         self.main_window = main_window_ref
         self._last_selected_row: int = -1
-        self.ax: Any = None  # Dynamically holds matplotlib 2D or 3D axes
+        self.ax: Any = None  
 
         self._setup_dark_theme()
         self._build_ui()
@@ -330,7 +331,7 @@ class TabMission(QWidget):
         main_tab_layout.addLayout(split_layout)
 
         self.combo_wind_type.currentIndexChanged.connect(self.toggle_gust_input)
-        self.toggle_gust_input()
+        self._toggle_weather_mode()
         self.toggle_toolbar()
         self.update_plot()
 
@@ -591,9 +592,69 @@ class TabMission(QWidget):
             QGroupBox: The initialized group box for environment configuration.
         """
         env_group = QGroupBox("3. Environment & Location Parameters")
-        env_group.setFixedSize(850, 250)
+        env_group.setFixedWidth(850)
+        env_group.setMinimumHeight(200)
         env_layout = QVBoxLayout()
 
+        # 1. Source Toggle
+        source_layout = QHBoxLayout()
+        self.radio_manual_wind = QRadioButton("Manual Configuration")
+        self.radio_api_wind = QRadioButton("Current Real-Time Weather")
+        self.radio_manual_wind.setChecked(True)
+        
+        self.radio_manual_wind.toggled.connect(self._toggle_weather_mode)
+        self.radio_api_wind.toggled.connect(self._toggle_weather_mode)
+        
+        source_layout.addWidget(QLabel("<b>Data Source:</b>"))
+        source_layout.addWidget(self.radio_manual_wind)
+        source_layout.addWidget(self.radio_api_wind)
+        source_layout.addStretch()
+        env_layout.addLayout(source_layout)
+
+        # 2. OpenWeather Location Container
+        self.loc_container = QWidget()
+        loc_layout = QHBoxLayout(self.loc_container)
+        loc_layout.setContentsMargins(0, 5, 0, 5)
+
+        loc_form = QFormLayout()
+        
+        self.spin_loc_lat = QDoubleSpinBox()
+        self.spin_loc_lat.setRange(-90, 90)
+        self.spin_loc_lat.setDecimals(6)
+        self.spin_loc_lat.setValue(-22.739000)  # Default for Piracicaba
+
+        self.spin_loc_lon = QDoubleSpinBox()
+        self.spin_loc_lon.setRange(-180, 180)
+        self.spin_loc_lon.setDecimals(6)
+        self.spin_loc_lon.setValue(-47.646000)  # Default for Piracicaba
+
+        loc_form.addRow("Latitude:", self.spin_loc_lat)
+        loc_form.addRow("Longitude:", self.spin_loc_lon)
+
+        self.btn_fetch_weather = QPushButton(" Sync API")
+        self.btn_fetch_weather.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
+        )
+        self.btn_fetch_weather.setToolTip("Fetch real-time weather for these coordinates")
+        self.btn_fetch_weather.setFixedHeight(30)
+        self.btn_fetch_weather.setStyleSheet(
+            "QPushButton { background-color: #3b3b3b; color: #00d4ff; border: 1px solid #00d4ff; border-radius: 4px; padding: 4px 12px; font-weight: bold;}"
+            "QPushButton:hover { background-color: #00d4ff; color: #2b2b2b; }"
+        )
+        self.btn_fetch_weather.clicked.connect(self.fetch_weather_data)
+
+        loc_layout.addLayout(loc_form)
+        loc_layout.addWidget(self.btn_fetch_weather)
+        loc_layout.addStretch()
+        
+        env_layout.addWidget(self.loc_container)
+
+        line = QWidget()
+        line.setFixedHeight(1)
+        line.setStyleSheet("background-color: #555555;")
+        env_layout.addWidget(line)
+
+        # 3. Wind Parameters
         wind_layout = QHBoxLayout()
         wind_form_left = QFormLayout()
         wind_form_right = QFormLayout()
@@ -634,39 +695,8 @@ class TabMission(QWidget):
         wind_layout.addLayout(wind_form_right)
         env_layout.addLayout(wind_layout)
 
-        line = QWidget()
-        line.setFixedHeight(1)
-        line.setStyleSheet("background-color: #555555;")
-        env_layout.addWidget(line)
-
-        loc_layout = QHBoxLayout()
-        loc_form = QFormLayout()
-        
-        self.spin_loc_lat = QDoubleSpinBox()
-        self.spin_loc_lat.setRange(-90, 90)
-        self.spin_loc_lat.setDecimals(6)
-        self.spin_loc_lat.setValue(-22.739000)  # Default for Piracicaba
-
-        self.spin_loc_lon = QDoubleSpinBox()
-        self.spin_loc_lon.setRange(-180, 180)
-        self.spin_loc_lon.setDecimals(6)
-        self.spin_loc_lon.setValue(-47.646000)  # Default for Piracicaba
-
-        loc_form.addRow("Latitude:", self.spin_loc_lat)
-        loc_form.addRow("Longitude:", self.spin_loc_lon)
-
-        btn_fetch_weather = QPushButton(" OpenWeather Data")
-        btn_fetch_weather.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)
-        )
-        btn_fetch_weather.clicked.connect(self.fetch_weather_data)
-
-        loc_layout.addLayout(loc_form)
-        loc_layout.addWidget(btn_fetch_weather)
-        loc_layout.addStretch()
-        
-        env_layout.addLayout(loc_layout)
         env_group.setLayout(env_layout)
+        
         return env_group
 
     def _build_visualizer_group(self) -> QGroupBox:
@@ -880,6 +910,7 @@ class TabMission(QWidget):
             if self.radio_cartesian.isChecked()
             else "geodesic",
             "wind": {
+                "use_api": self.radio_api_wind.isChecked(),
                 "type": self.combo_wind_type.currentText(),
                 "magnitude": self.spin_wind_mag.value(),
                 "heading": self.spin_wind_head.value(),
@@ -927,6 +958,7 @@ class TabMission(QWidget):
             self.table_waypoints.setRowCount(0)
             
             self.radio_cartesian.setChecked(True)
+            self.radio_manual_wind.setChecked(True)
             self.combo_wind_type.setCurrentIndex(0)
             
             self.spin_wind_mag.setValue(0.0)
@@ -1049,6 +1081,11 @@ class TabMission(QWidget):
                 self.radio_geodesic.setChecked(True)
 
             wind_data = data.get("wind", {})
+            if wind_data.get("use_api", False):
+                self.radio_api_wind.setChecked(True)
+            else:
+                self.radio_manual_wind.setChecked(True)
+                
             self.combo_wind_type.setCurrentText(wind_data.get("type", "None"))
             self.spin_wind_mag.setValue(wind_data.get("magnitude", 0.0))
             self.spin_wind_head.setValue(wind_data.get("heading", 0.0))
@@ -1108,13 +1145,63 @@ class TabMission(QWidget):
             msg.exec()
 
     def toggle_gust_input(self) -> None:
-        """Enables or disables gust parameter fields based on wind type."""
-        wind_type = self.combo_wind_type.currentText()
-        if "None" in wind_type or "Constant" in wind_type:
-            self.spin_wind_gust.setEnabled(False)
-            self.spin_wind_gust.setValue(0.0)
+        """Enables or disables gust parameter fields based on wind type and API mode."""
+        is_api = getattr(self, 'radio_api_wind', None) and self.radio_api_wind.isChecked()
+        
+        if is_api:
+            self.spin_wind_gust.setEnabled(True) 
+            self.spin_wind_gust.setReadOnly(True)
         else:
-            self.spin_wind_gust.setEnabled(True)
+            self.spin_wind_gust.setReadOnly(False)
+            wind_type = self.combo_wind_type.currentText()
+            if "None" in wind_type or "Constant" in wind_type:
+                self.spin_wind_gust.setEnabled(False)
+                self.spin_wind_gust.setValue(0.0)
+            else:
+                self.spin_wind_gust.setEnabled(True)
+
+    def _toggle_weather_mode(self) -> None:
+        """Shows or hides the API location inputs and firmly locks manual fields."""
+        is_api = self.radio_api_wind.isChecked()
+        self.loc_container.setVisible(is_api)
+        
+        self.combo_wind_type.setEnabled(not is_api)
+        
+        spins = [
+            self.spin_wind_mag,
+            self.spin_wind_head,
+            self.spin_wind_elev,
+            self.spin_wind_gust
+        ]
+        
+        self.toggle_gust_input()
+        
+        if is_api:
+            # Absolute Visual Lock CSS
+            locked_style = (
+                "QDoubleSpinBox {"
+                "background-color: #1a1a1a; "
+                "color: #00d4ff; "
+                "border: 1px dashed #555555; "
+                "border-radius: 4px; "
+                "padding: 2px;"
+                "}"
+            )
+            for spin in spins:
+                spin.setReadOnly(True)
+                spin.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+                spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
+                spin.setStyleSheet(locked_style)
+        else:
+            # Default Edit CSS
+            for spin in spins:
+                spin.setReadOnly(False)
+                spin.setFocusPolicy(Qt.FocusPolicy.WheelFocus)
+                spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.UpDownArrows)
+                spin.setStyleSheet("")
+                
+        # Re-enforce gust availability state after reset
+        self.toggle_gust_input()
 
     # -------------------------------------------------------------------------
     # OPENWEATHER API INTEGRATION
