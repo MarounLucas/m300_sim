@@ -10,13 +10,15 @@ __pycache__/
 env/
 venv/
 
-# ROS 2 / Colcon artifacts (in case of accidental local builds)
-build/]
+# ROS 2 / Colcon artifacts
+build/
 install/
 log/
 
 # Simulation Data
 bags/
+data/
+config/
 
 # VS Code
 .vscode/
