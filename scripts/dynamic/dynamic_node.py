@@ -18,6 +18,7 @@ from scipy.spatial.transform import Rotation
 
 from geometry_msgs.msg import WrenchStamped
 from nav_msgs.msg import Odometry
+from sensor_msgs.msg import JointState
 from std_msgs.msg import Empty
 
 from .mixer import Mixer
@@ -143,6 +144,12 @@ class DynamicNode(Node):
         self.dyn_pub = self.create_publisher(
             Odometry, '/m300_sim/telemetry_topic', 10
         )
+        
+        # NOVO: Publicador Profissional de Atuadores
+        self.motor_pub = self.create_publisher(
+            JointState, '/m300_sim/joint_states', 10
+        )
+        
         self.get_logger().info('Telemetry Publisher Started')
 
         self.ctrl_sub = self.create_subscription(
@@ -259,8 +266,19 @@ class DynamicNode(Node):
     def _step_simulation(self) -> None:
         """Advances the 6-DOF physics model by one time step."""
         w_cmds = self.mixer.compute_motor_speed(self.u_virtual)
+        
+        self._publish_motor_speeds(w_cmds)
+        
         dx = six_dof_model(self.state, self.ac_params, self.curr_wind, w_cmds)
         self.state = forward_euler(self.state, dx, self.dt)
+
+    def _publish_motor_speeds(self, w_cmds: np.ndarray) -> None:
+        """Publishes the current rotation speed of all 4 propellers using JointState."""
+        msg = JointState()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.name = ['rotor_0', 'rotor_1', 'rotor_2', 'rotor_3']
+        msg.velocity = [float(w_cmds[0]), float(w_cmds[1]), float(w_cmds[2]), float(w_cmds[3])]
+        self.motor_pub.publish(msg)
 
     def _publish_odometry(self) -> None:
         """Constructs and publishes the Odometry message with the current state."""

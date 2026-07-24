@@ -29,6 +29,11 @@ from PySide6.QtWidgets import QApplication
 from gui.widgets.main_window import MainWindow
 
 
+os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--ignore-gpu-blocklist --enable-webgl --enable-gpu-rasterization"
+os.environ["QTWEBENGINE_REMOTE_DEBUGGING"] = "9999"
+
+
+
 # ==============================================================================
 # BRIDGE SIGNALS
 # ==============================================================================

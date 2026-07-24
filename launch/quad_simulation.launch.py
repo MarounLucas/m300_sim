@@ -42,6 +42,15 @@ def generate_launch_description():
         output='screen'
     )
 
+    # NOVO: O Servidor WebSocket que vai transmitir dados para a Unity (WebGL)
+    rosbridge_node = Node(
+        package='rosbridge_server',
+        executable='rosbridge_websocket',
+        name='rosbridge_websocket',
+        output='screen',
+        parameters=[{'port': 9090}]
+    )
+
     # A MÁGICA DE DESLIGAMENTO: Se a GUI fechar, mata tudo automaticamente.
     sys_shutdown = RegisterEventHandler(
         OnProcessExit(
@@ -59,6 +68,7 @@ def generate_launch_description():
     ld.add_action(traj_node)
     ld.add_action(ctrl_node)
     ld.add_action(dyn_node)
+    ld.add_action(rosbridge_node) # <- Adicionado no Launch
     ld.add_action(gui_node)
     ld.add_action(sys_shutdown)
 
