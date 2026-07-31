@@ -68,27 +68,56 @@ class TelemetryHelpDialog(QDialog):
         layout.setContentsMargins(0, 0, 0, 0)
         browser = QTextBrowser()
         
-        html_content = (
-            "<html><head><style>"
-            "body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #e0e0e0; padding: 15px 25px; }"
-            "h2 { color: #00d4ff; margin-top: 10px; border-bottom: 1px solid #555; padding-bottom: 5px;}"
-            "h3 { color: #4caf50; margin-top: 25px; margin-bottom: 5px; }"
-            "ul { margin-top: 5px; padding-left: 25px; }"
-            "li { margin-bottom: 8px; }"
-            "b { color: #ffffff; }"
-            "</style></head><body>"
-            "<h2>Live Telemetry Dashboard Guide</h2>"
-            "<p>This panel acts as the Ground Control Station (GCS) for your UAV, monitoring data streamed directly from the ROS 2 environment in real-time.</p>"
-            "<h3>1. Interactive Graphs & History</h3><ul>"
-            "<li><b>Pan & Zoom:</b> The graphs are fully interactive. Use the mouse wheel to zoom in/out, and click-drag to pan across the timeline.</li>"
-            "<li><b>Auto-Scroll Toggle:</b> Uncheck the 'Auto-Scroll' box to stop the live window and view the complete flight history.</li>"
-            "<li><b>Switching Views:</b> Cycle between data categories, including the live 3D Digital Twin environment.</li>"
-            "</ul><h3>2. Data Recording & Export</h3><ul>"
-            "<li><b>Export CSV:</b> Generates a complete mathematical report of the flight.</li>"
-            "<li><b>Snapshot Graph:</b> Render a high-res PNG off-screen for reports.</li>"
-            "<li><b>Clear History:</b> Wipes the background memory and resets the dashboard timeline.</li>"
-            "</ul></body></html>"
-        )
+        # 1. DESCOBRIR O CAMINHO ABSOLUTO DO GIF
+        current_dir = Path(__file__).resolve().parent
+        gif_path = current_dir.parent / "assets" / "img" / "tutorial_telemetry.gif"
+        gif_uri = gif_path.as_uri()
+
+        # 2. INSERIR NA F-STRING DO HTML
+        html_content = f"""
+        <html>
+        <head>
+        <style>
+            body {{ font-family: 'Segoe UI', Arial, sans-serif; font-size: 14px; 
+                   line-height: 1.6; color: #e0e0e0; padding: 15px 25px; }}
+            h2 {{ color: #00d4ff; margin-top: 10px; border-bottom: 1px solid #555; 
+                 padding-bottom: 5px;}}
+            h3 {{ color: #4caf50; margin-top: 25px; margin-bottom: 5px; }}
+            ul {{ margin-top: 5px; padding-left: 25px; }}
+            li {{ margin-bottom: 8px; }}
+            b {{ color: #ffffff; }}
+            .gif-container {{ text-align: center; margin: 20px 0; }}
+            img {{ max-width: 100%; border: 1px solid #555; border-radius: 8px; }}
+        </style>
+        </head>
+        <body>
+        <h2>Live Telemetry Dashboard Guide</h2>
+        <p>This panel acts as the Ground Control Station (GCS) for your UAV, monitoring 
+        data streamed directly from the ROS 2 environment in real-time.</p>
+        
+        <div class="gif-container">
+            <img src="{gif_uri}" alt="Tutorial de Telemetria">
+        </div>
+
+        <h3>1. Interactive Graphs & History</h3>
+        <ul>
+            <li><b>Pan & Zoom:</b> The graphs are fully interactive. Use the mouse wheel 
+            to zoom in/out, and click-drag to pan across the timeline.</li>
+            <li><b>Auto-Scroll Toggle:</b> Uncheck the 'Auto-Scroll' box to stop the live 
+            window and view the complete flight history.</li>
+            <li><b>Switching Views:</b> Cycle between data categories, including the live 
+            3D Digital Twin environment.</li>
+        </ul>
+        
+        <h3>2. Data Recording & Export</h3>
+        <ul>
+            <li><b>Export CSV:</b> Generates a complete mathematical report of the flight.</li>
+            <li><b>Snapshot Graph:</b> Render a high-res PNG off-screen for reports.</li>
+            <li><b>Clear History:</b> Wipes the background memory and resets the dashboard timeline.</li>
+        </ul>
+        </body>
+        </html>
+        """
         browser.setHtml(html_content)
         layout.addWidget(browser)
 
@@ -372,7 +401,6 @@ class TabTelemetry(QWidget):
         self.radio_group = QButtonGroup(self)
         self.radios: List[QRadioButton] = []
         
-        # 1. ORDEM E NOMES ALTERADOS AQUI
         plot_options = ["3D Simulation", "Position", "Attitude", "Linear Velocity", "Angular Rate"]
         
         for i, text in enumerate(plot_options):
@@ -497,13 +525,12 @@ class TabTelemetry(QWidget):
         self.graph_items = []
         view_idx = self.radio_group.checkedId()
         
-        # 2. ÍNDICES ATUALIZADOS AQUI NA LÓGICA
-        if view_idx == 0: # Agora o índice 0 é a simulação 3D
+        if view_idx == 0: 
             self.chk_autoscroll.setEnabled(False)
-            self.right_stack.setCurrentIndex(1) # Traz o WebEngine para frente
+            self.right_stack.setCurrentIndex(1) 
             return
 
-        self.right_stack.setCurrentIndex(0) # Traz os gráficos 2D para frente
+        self.right_stack.setCurrentIndex(0) 
         self.chk_autoscroll.setEnabled(True)
         
         pens = [pg.mkPen(color='#f44336', width=2), pg.mkPen(color='#4caf50', width=2), pg.mkPen(color='#00d4ff', width=2)] 
@@ -517,25 +544,25 @@ class TabTelemetry(QWidget):
             p.showGrid(x=True, y=True, alpha=0.3)
             return p
 
-        if view_idx == 1: # Índice 1 agora é Position
+        if view_idx == 1: 
             keys = ['x', 'y', 'z']; labels = ['North [m]', 'East [m]', 'Altitude [m]']
             for i in range(3):
                 p = _create_plot(0, i, labels[i], labels[i]); curve = p.plot(pen=pens[i])
                 self.graph_items.append((curve, p, keys[i], labels[i]))
 
-        elif view_idx == 2: # Índice 2 agora é Attitude
+        elif view_idx == 2: 
             keys = ['roll', 'pitch', 'yaw']; labels = ['Roll [deg]', 'Pitch [deg]', 'Yaw [deg]']
             for i in range(3):
                 p = _create_plot(0, i, labels[i], labels[i]); curve = p.plot(pen=pens[i])
                 self.graph_items.append((curve, p, keys[i], labels[i]))
                 
-        elif view_idx == 3: # Índice 3 agora é Linear Velocity
+        elif view_idx == 3: 
             keys = ['u', 'v', 'w']; labels = ['u [m/s]', 'v [m/s]', 'w [m/s]']
             for i in range(3):
                 p = _create_plot(0, i, labels[i], labels[i]); curve = p.plot(pen=pens[i])
                 self.graph_items.append((curve, p, keys[i], labels[i]))
 
-        elif view_idx == 4: # Índice 4 agora é Angular Rate
+        elif view_idx == 4: 
             keys = ['p', 'q', 'r']; labels = ['p [rad/s]', 'q [rad/s]', 'r [rad/s]']
             for i in range(3):
                 p = _create_plot(0, i, labels[i], labels[i]); curve = p.plot(pen=pens[i])

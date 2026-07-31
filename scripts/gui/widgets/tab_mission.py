@@ -12,11 +12,10 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-import matplotlib
 import numpy as np
 import requests
 import yaml
-from PySide6.QtCore import Qt, QThread, Signal, QTimer
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QKeySequence, QPalette, QShortcut
 from PySide6.QtWidgets import (
     QComboBox,
@@ -39,18 +38,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-# --- MATPLOTLIB MATHTEXT CONFIGURATION ---
-matplotlib.use("QtAgg")
-from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.figure import Figure
-
-matplotlib.rcParams["text.usetex"] = False
-matplotlib.rcParams["mathtext.fontset"] = "cm"
-matplotlib.rcParams["font.family"] = "serif"
-matplotlib.rcParams["text.color"] = "white"
-matplotlib.rcParams["axes.labelcolor"] = "white"
-matplotlib.rcParams["xtick.color"] = "#aaaaaa"
-matplotlib.rcParams["ytick.color"] = "#aaaaaa"
+# --- PYQTGRAPH OPENGL CONFIGURATION ---
+import pyqtgraph as pg
+import pyqtgraph.opengl as gl
 
 
 # =========================================================================
@@ -72,11 +62,6 @@ class MissionHelpDialog(QDialog):
     """Floating help dialog detailing mission configuration parameters."""
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
-        """Initializes the mission help dialog and its HTML content.
-
-        Args:
-            parent (Optional[QWidget]): The parent widget.
-        """
         super().__init__(parent)
         self.setWindowTitle("Documentation - Mission Configuration")
         self.resize(850, 650)
@@ -87,48 +72,70 @@ class MissionHelpDialog(QDialog):
         browser = QTextBrowser()
         browser.setOpenExternalLinks(True)
 
-        html_content = (
-            "<html><head><style>"
-            "body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 14px; "
-            "line-height: 1.6; color: #e0e0e0; padding: 15px 25px; }"
-            "h2 { color: #00d4ff; margin-top: 10px; border-bottom: 1px solid #555; "
-            "padding-bottom: 5px;}"
-            "h3 { color: #4caf50; margin-top: 25px; margin-bottom: 5px; }"
-            "ul { margin-top: 5px; padding-left: 25px; }"
-            "li { margin-bottom: 8px; }"
-            "b { color: #ffffff; }"
-            "code { background-color: #444; padding: 2px 4px; border-radius: 3px; "
-            "color: #ffcc00;}"
-            "</style></head><body>"
-            "<h2>Mission Configuration Guide</h2>"
-            "<p>This section allows you to define the UAV's flight path, trajectory "
-            "parameters, and environmental conditions for the integration algorithms.</p>"
-            "<h3>1. Waypoints Configuration</h3><ul>"
-            "<li><b>Coordinate System:</b> Choose between Cartesian (X, Y, Z in meters) "
-            "or Geodesic (Latitude, Longitude, Altitude).</li>"
-            "<li><b>Adding Points:</b> Manually input coordinates or load a batch from a "
-            "<code>.csv</code> or <code>.json</code> file.</li>"
-            "<li><b>Table Tools:</b> Select rows to Edit, Duplicate, Reorder, or Remove "
-            "waypoints dynamically.</li></ul>"
-            "<h3>2. Trajectory Planning</h3><ul>"
-            "<li><b>Generation Type:</b> Mathematical method to interpolate waypoints "
-            "(e.g., 5th Degree Polynomial for smooth, jerk-free motion profiles).</li>"
-            "<li><b>Max Speed (XY) [m/s]:</b> Maximum horizontal speed allowed.</li>"
-            "<li><b>Max Speed (Z) [m/s]:</b> Maximum vertical speed allowed.</li>"
-            "<li><b>Yaw Mode:</b> Defines the drone's heading profile: <br>"
-            "- <i>Free:</i> keeps the initial yaw.<br>"
-            "- <i>Forward:</i> continuously points the nose to the velocity vector.<br>"
-            "- <i>Target:</i> nose always points to a specific XYZ coordinate lock.</li></ul>"
-            "<h3>3. Environment & Location Parameters</h3><ul>"
-            "<li><b>Data Source Toggle:</b> Choose <i>Manual Configuration</i> to input wind data "
-            "manually, or <i>Current Real-Time Weather</i> to reveal location settings and sync "
-            "actual weather conditions. Fields are visibly locked in Real-Time mode to ensure data integrity.</li>"
-            "<li><b>Wind Type:</b> Simulation wind disturbance model.</li>"
-            "<li><b>Base Magnitude [m/s]:</b> Base persistent wind speed.</li>"
-            "<li><b>Heading / Elevation [&deg;]:</b> Wind direction vector angles.</li>"
-            "<li><b>Max Gust [m/s]:</b> Maximum magnitude added dynamically by gusts.</li>"
-            "</ul></body></html>"
-        )
+        current_dir = Path(__file__).resolve().parent
+        gif_path = current_dir.parent / "assets" / "img" / "tutorial_mission.gif"
+        gif_uri = gif_path.as_uri()
+
+        html_content = f"""
+        <html>
+        <head>
+        <style>
+            body {{ font-family: 'Segoe UI', Arial, sans-serif; font-size: 14px; 
+                   line-height: 1.6; color: #e0e0e0; padding: 15px 25px; }}
+            h2 {{ color: #00d4ff; margin-top: 10px; border-bottom: 1px solid #555; 
+                 padding-bottom: 5px;}}
+            h3 {{ color: #4caf50; margin-top: 25px; margin-bottom: 5px; }}
+            ul {{ margin-top: 5px; padding-left: 25px; }}
+            li {{ margin-bottom: 8px; }}
+            b {{ color: #ffffff; }}
+            code {{ background-color: #444; padding: 2px 4px; border-radius: 3px; 
+                   color: #ffcc00;}}
+            .gif-container {{ text-align: center; margin: 20px 0; }}
+            img {{ max-width: 100%; border: 1px solid #555; border-radius: 8px; }}
+        </style>
+        </head>
+        <body>
+        <h2>Mission Configuration Guide</h2>
+        <p>This section allows you to define the UAV's flight path, trajectory 
+        parameters, and environmental conditions for the integration algorithms.</p>
+        
+        <div class="gif-container">
+            <img src="{gif_uri}" alt="Tutorial de Missão">
+        </div>
+
+        <h3>1. Waypoints Configuration</h3>
+        <ul>
+            <li><b>Coordinate System:</b> Choose between Cartesian (X, Y, Z in meters) 
+            or Geodesic (Latitude, Longitude, Altitude).</li>
+            <li><b>Adding Points:</b> Manually input coordinates or load a batch from a 
+            <code>.csv</code> or <code>.json</code> file.</li>
+            <li><b>Table Tools:</b> Select rows to Edit, Duplicate, Reorder, or Remove 
+            waypoints dynamically.</li>
+        </ul>
+        <h3>2. Trajectory Planning</h3>
+        <ul>
+            <li><b>Generation Type:</b> Mathematical method to interpolate waypoints 
+            (e.g., 5th Degree Polynomial for smooth, jerk-free motion profiles).</li>
+            <li><b>Max Speed (XY) [m/s]:</b> Maximum horizontal speed allowed.</li>
+            <li><b>Max Speed (Z) [m/s]:</b> Maximum vertical speed allowed.</li>
+            <li><b>Yaw Mode:</b> Defines the drone's heading profile: <br>
+            - <i>Free:</i> keeps the initial yaw.<br>
+            - <i>Forward:</i> continuously points the nose to the velocity vector.<br>
+            - <i>Target:</i> nose always points to a specific XYZ coordinate lock.</li>
+        </ul>
+        <h3>3. Environment & Location Parameters</h3>
+        <ul>
+            <li><b>Data Source Toggle:</b> Choose <i>Manual Configuration</i> to input wind data 
+            manually, or <i>Current Real-Time Weather</i> to reveal location settings and sync 
+            actual weather conditions. Fields are visibly locked in Real-Time mode to ensure data integrity.</li>
+            <li><b>Wind Type:</b> Simulation wind disturbance model.</li>
+            <li><b>Base Magnitude [m/s]:</b> Base persistent wind speed.</li>
+            <li><b>Heading / Elevation [&deg;]:</b> Wind direction vector angles.</li>
+            <li><b>Max Gust [m/s]:</b> Maximum magnitude added dynamically by gusts.</li>
+        </ul>
+        </body>
+        </html>
+        """
         browser.setHtml(html_content)
         layout.addWidget(browser)
 
@@ -144,15 +151,6 @@ class CustomMessageBox(QDialog):
         msg_type: str = "info",
         parent: Optional[QWidget] = None,
     ) -> None:
-        """Initializes the custom message box with tailored styling.
-
-        Args:
-            title (str): The window title.
-            main_text (str): The primary message header.
-            detail_text (str): Optional secondary explanatory text.
-            msg_type (str): Type of prompt ('info', 'question', 'success', 'error').
-            parent (Optional[QWidget]): The parent widget.
-        """
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setMinimumWidth(450)
@@ -223,32 +221,18 @@ class CustomMessageBox(QDialog):
 # MAIN CLASS
 # =========================================================================
 class TabMission(QWidget):
-    """UI Tab for managing UAV mission configurations.
-
-    Provides fields for trajectory planning, waypoint management, environmental
-    wind modeling, and a 3D matplotlib visualization canvas.
-
-    Attributes:
-        main_window (QWidget): Reference to the parent main window.
-    """
+    """UI Tab for managing UAV mission configurations."""
 
     def __init__(self, main_window_ref: QWidget) -> None:
-        """Initializes the mission configuration tab.
-
-        Args:
-            main_window_ref (QWidget): Reference to the main application window.
-        """
         super().__init__()
         self.main_window = main_window_ref
         self._last_selected_row: int = -1
-        self.ax: Any = None  
 
         self._setup_dark_theme()
         self._build_ui()
         self._setup_shortcuts()
 
     def _setup_dark_theme(self) -> None:
-        """Applies dark theme styling specifically for the mission tab."""
         palette = QPalette()
         palette.setColor(QPalette.ColorRole.Window, QColor(43, 43, 43))
         palette.setColor(QPalette.ColorRole.WindowText, Qt.GlobalColor.white)
@@ -267,7 +251,6 @@ class TabMission(QWidget):
         )
 
     def _setup_shortcuts(self) -> None:
-        """Configures keyboard shortcuts for the tab's main actions."""
         self.shortcut_new = QShortcut(QKeySequence("Ctrl+R"), self)
         self.shortcut_new.activated.connect(self.reset_mission)
 
@@ -302,12 +285,10 @@ class TabMission(QWidget):
         self.shortcut_del_wp.activated.connect(self.remove_waypoint)
 
     def show_help_window(self) -> None:
-        """Instantiates and displays the mission help dialog."""
         self.help_dialog = MissionHelpDialog(self)
         self.help_dialog.show()
 
     def _build_ui(self) -> None:
-        """Constructs the master layout including the toolbar, panels, and graph."""
         main_tab_layout = QVBoxLayout(self)
         main_tab_layout.setSpacing(10)
 
@@ -316,7 +297,6 @@ class TabMission(QWidget):
         split_layout = QHBoxLayout()
         split_layout.setSpacing(15)
 
-        # --- LEFT SIDE: MASTER CONTAINER ---
         self.left_master_container_widget = QWidget()
         left_master_container = QVBoxLayout(self.left_master_container_widget)
         left_master_container.setContentsMargins(0, 0, 0, 0)
@@ -333,41 +313,30 @@ class TabMission(QWidget):
         self.combo_wind_type.currentIndexChanged.connect(self.toggle_gust_input)
         self._toggle_weather_mode()
         self.toggle_toolbar()
+        
+        # Initial Plot Update
         self.update_plot()
 
     def _build_toolbar(self) -> QHBoxLayout:
-        """Constructs the top toolbar with global actions.
-
-        Returns:
-            QHBoxLayout: The layout containing the toolbar buttons.
-        """
         global_toolbar_layout = QHBoxLayout()
 
         self.btn_new_mission = QPushButton()
-        self.btn_new_mission.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_FileIcon)
-        )
+        self.btn_new_mission.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_FileIcon))
         self.btn_new_mission.setToolTip("New Mission (Ctrl+R)")
         self.btn_new_mission.clicked.connect(self.reset_mission)
 
         self.btn_save_mission = QPushButton()
-        self.btn_save_mission.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_DriveFDIcon)
-        )
+        self.btn_save_mission.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DriveFDIcon))
         self.btn_save_mission.setToolTip("Save Current Mission (Ctrl+S)")
         self.btn_save_mission.clicked.connect(self.save_mission)
 
         self.btn_load_mission = QPushButton()
-        self.btn_load_mission.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_DirIcon)
-        )
+        self.btn_load_mission.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DirIcon))
         self.btn_load_mission.setToolTip("Load Saved Mission (Ctrl+O)")
         self.btn_load_mission.clicked.connect(self.load_mission)
 
         self.btn_help = QPushButton()
-        self.btn_help.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxInformation)
-        )
+        self.btn_help.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxInformation))
         self.btn_help.setToolTip("Mission Parameters Guide (F1)")
         self.btn_help.clicked.connect(self.show_help_window)
 
@@ -379,14 +348,10 @@ class TabMission(QWidget):
 
         self.lbl_sim_status = QLabel("Status: Waiting for Configuration")
         self.lbl_sim_status.setStyleSheet("font-size: 13px; color: #aaaaaa;")
-        self.lbl_sim_status.setAlignment(
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-        )
+        self.lbl_sim_status.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
         self.btn_run_sim = QPushButton(" Run Simulation")
-        self.btn_run_sim.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay)
-        )
+        self.btn_run_sim.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
         self.btn_run_sim.setToolTip("Execute Dynamic Simulation")
         self.btn_run_sim.clicked.connect(self.start_simulation)
 
@@ -395,11 +360,6 @@ class TabMission(QWidget):
         return global_toolbar_layout
 
     def _build_waypoints_group(self) -> QGroupBox:
-        """Constructs the waypoints table and its control inputs.
-
-        Returns:
-            QGroupBox: The initialized group box for waypoint configuration.
-        """
         waypoints_group = QGroupBox("1. Waypoints Configuration")
         waypoints_group.setFixedSize(850, 400)
         wp_internal_layout = QHBoxLayout()
@@ -416,16 +376,13 @@ class TabMission(QWidget):
         
         self.radio_cartesian.toggled.connect(self.update_coordinate_labels)
         self.radio_cartesian.toggled.connect(self.update_plot)
-        self.radio_geodesic.toggled.connect(self.update_plot)
         
         coord_layout.addWidget(self.radio_cartesian)
         coord_layout.addWidget(self.radio_geodesic)
         wp_inputs_layout.addLayout(coord_layout)
 
         btn_load_file = QPushButton(" Load Coordinates")
-        btn_load_file.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_DialogOpenButton)
-        )
+        btn_load_file.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogOpenButton))
         btn_load_file.clicked.connect(self.load_waypoints_from_file)
         wp_inputs_layout.addWidget(btn_load_file)
 
@@ -457,9 +414,7 @@ class TabMission(QWidget):
         wp_inputs_layout.addLayout(form_layout)
 
         btn_add = QPushButton(" Add Point")
-        btn_add.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_DialogApplyButton)
-        )
+        btn_add.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogApplyButton))
         btn_add.clicked.connect(self.add_manual_waypoint)
         wp_inputs_layout.addWidget(btn_add)
         wp_inputs_layout.addStretch()
@@ -470,23 +425,15 @@ class TabMission(QWidget):
         toolbar_layout.setContentsMargins(0, 0, 0, 5)
 
         self.btn_edit = QPushButton()
-        self.btn_edit.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView)
-        )
+        self.btn_edit.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView))
         self.btn_dup = QPushButton()
-        self.btn_dup.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_TitleBarNormalButton)
-        )
+        self.btn_dup.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_TitleBarNormalButton))
         self.btn_up = QPushButton()
         self.btn_up.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowUp))
         self.btn_down = QPushButton()
-        self.btn_down.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowDown)
-        )
+        self.btn_down.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowDown))
         self.btn_rem = QPushButton()
-        self.btn_rem.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon)
-        )
+        self.btn_rem.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon))
 
         self.btn_edit.clicked.connect(self.edit_waypoint)
         self.btn_dup.clicked.connect(self.duplicate_waypoint)
@@ -503,14 +450,10 @@ class TabMission(QWidget):
 
         self.table_waypoints = QTableWidget(0, 3)
         self.table_waypoints.setHorizontalHeaderLabels(["X [m]", "Y [m]", "Z [m]"])
-        self.table_waypoints.horizontalHeader().setSectionResizeMode(
-            QHeaderView.Stretch
-        )
+        self.table_waypoints.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.table_waypoints.setSelectionBehavior(QTableWidget.SelectRows)
         self.table_waypoints.setSelectionMode(QTableWidget.ExtendedSelection)
-        self.table_waypoints.setEditTriggers(
-            QTableWidget.DoubleClicked | QTableWidget.EditKeyPressed
-        )
+        self.table_waypoints.setEditTriggers(QTableWidget.DoubleClicked | QTableWidget.EditKeyPressed)
         self.table_waypoints.itemSelectionChanged.connect(self.toggle_toolbar)
         self.table_waypoints.itemChanged.connect(self.update_plot)
         wp_table_layout.addWidget(self.table_waypoints)
@@ -521,11 +464,6 @@ class TabMission(QWidget):
         return waypoints_group
 
     def _build_trajectory_group(self) -> QGroupBox:
-        """Constructs the UI group for trajectory planning and speed limits.
-
-        Returns:
-            QGroupBox: The initialized group box for trajectory configuration.
-        """
         trajectory_group = QGroupBox("2. Trajectory Planning")
         trajectory_group.setFixedSize(850, 150)
         traj_layout = QHBoxLayout()
@@ -586,17 +524,11 @@ class TabMission(QWidget):
         return trajectory_group
 
     def _build_environment_group(self) -> QGroupBox:
-        """Constructs the UI group for wind modeling and live weather API.
-
-        Returns:
-            QGroupBox: The initialized group box for environment configuration.
-        """
         env_group = QGroupBox("3. Environment & Location Parameters")
         env_group.setFixedWidth(850)
         env_group.setMinimumHeight(200)
         env_layout = QVBoxLayout()
 
-        # 1. Source Toggle
         source_layout = QHBoxLayout()
         self.radio_manual_wind = QRadioButton("Manual Configuration")
         self.radio_api_wind = QRadioButton("Current Real-Time Weather")
@@ -611,7 +543,6 @@ class TabMission(QWidget):
         source_layout.addStretch()
         env_layout.addLayout(source_layout)
 
-        # 2. OpenWeather Location Container
         self.loc_container = QWidget()
         loc_layout = QHBoxLayout(self.loc_container)
         loc_layout.setContentsMargins(0, 5, 0, 5)
@@ -621,20 +552,18 @@ class TabMission(QWidget):
         self.spin_loc_lat = QDoubleSpinBox()
         self.spin_loc_lat.setRange(-90, 90)
         self.spin_loc_lat.setDecimals(6)
-        self.spin_loc_lat.setValue(-22.739000)  # Default for Piracicaba
+        self.spin_loc_lat.setValue(-22.739000) 
 
         self.spin_loc_lon = QDoubleSpinBox()
         self.spin_loc_lon.setRange(-180, 180)
         self.spin_loc_lon.setDecimals(6)
-        self.spin_loc_lon.setValue(-47.646000)  # Default for Piracicaba
+        self.spin_loc_lon.setValue(-47.646000) 
 
         loc_form.addRow("Latitude:", self.spin_loc_lat)
         loc_form.addRow("Longitude:", self.spin_loc_lon)
 
         self.btn_fetch_weather = QPushButton(" Sync API")
-        self.btn_fetch_weather.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
-        )
+        self.btn_fetch_weather.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload))
         self.btn_fetch_weather.setToolTip("Fetch real-time weather for these coordinates")
         self.btn_fetch_weather.setFixedHeight(30)
         self.btn_fetch_weather.setStyleSheet(
@@ -654,7 +583,6 @@ class TabMission(QWidget):
         line.setStyleSheet("background-color: #555555;")
         env_layout.addWidget(line)
 
-        # 3. Wind Parameters
         wind_layout = QHBoxLayout()
         wind_form_left = QFormLayout()
         wind_form_right = QFormLayout()
@@ -700,12 +628,8 @@ class TabMission(QWidget):
         return env_group
 
     def _build_visualizer_group(self) -> QGroupBox:
-        """Constructs the Matplotlib 3D trajectory visualization area.
-
-        Returns:
-            QGroupBox: The initialized group box holding the canvas.
-        """
-        visualizer_group = QGroupBox("Trajectory Visualizer")
+        """Constructs the OpenGL hardware-accelerated visualization area."""
+        visualizer_group = QGroupBox("Trajectory Visualizer (OpenGL)")
         vis_layout = QVBoxLayout()
 
         vis_controls = QHBoxLayout()
@@ -713,13 +637,11 @@ class TabMission(QWidget):
         self.view_combo.addItems(
             ["3D Perspective", "Top View (XY)", "Side View (YZ)", "Front View (XZ)"]
         )
-        self.view_combo.currentIndexChanged.connect(self.update_plot)
+        self.view_combo.currentIndexChanged.connect(self.set_camera_view)
 
         btn_reset_view = QPushButton()
-        btn_reset_view.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
-        )
-        btn_reset_view.clicked.connect(self.reset_graph_view)
+        btn_reset_view.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload))
+        btn_reset_view.clicked.connect(self.set_camera_view)
 
         vis_controls.addWidget(QLabel("Camera:"))
         vis_controls.addWidget(self.view_combo)
@@ -727,121 +649,99 @@ class TabMission(QWidget):
         vis_controls.addWidget(btn_reset_view)
         vis_layout.addLayout(vis_controls)
 
-        self.figure = Figure()
-        self.canvas = FigureCanvas(self.figure)
-        self.figure.patch.set_facecolor("#2b2b2b")
-        vis_layout.addWidget(self.canvas)
+        # -------------------------------------------------------------
+        # THE NEW OPENGL CANVAS
+        # -------------------------------------------------------------
+        self.gl_canvas = gl.GLViewWidget()
+        self.gl_canvas.setBackgroundColor('#2b2b2b')
+
+        # Add a subtle grid
+        self.grid = gl.GLGridItem()
+        self.grid.setSize(x=500, y=500, z=0)
+        self.grid.setSpacing(x=10, y=10, z=10)
+        self.grid.setColor((100, 100, 100, 100)) # subtle gray
+        self.gl_canvas.addItem(self.grid)
+
+        # Add Axis
+        self.axis = gl.GLAxisItem()
+        self.axis.setSize(x=20, y=20, z=20)
+        self.gl_canvas.addItem(self.axis)
+
+        # References to plot items
+        self.line_item = None
+        self.scatter_item = None
+        self.start_point = None
+        self.end_point = None
+
+        vis_layout.addWidget(self.gl_canvas)
         
         visualizer_group.setLayout(vis_layout)
         return visualizer_group
 
     # =========================================================================
-    # PLOTTING LOGIC
+    # OPENGL PLOTTING LOGIC
     # =========================================================================
-    def update_plot(self) -> None:
-        """Refreshes the Matplotlib canvas with the current waypoint data."""
-        self.figure.clear()
+    def set_camera_view(self) -> None:
+        """Adjusts the OpenGL camera angle instantly based on the ComboBox."""
         view_mode = self.view_combo.currentText()
-        is_cartesian = self.radio_cartesian.isChecked()
-        x_vals, y_vals, z_vals = [], [], []
+        distance = self.gl_canvas.opts['distance'] # preserve zoom
+        
+        if view_mode == "Top View (XY)":
+            self.gl_canvas.setCameraPosition(elevation=90, azimuth=-90, distance=distance)
+        elif view_mode == "Side View (YZ)":
+            self.gl_canvas.setCameraPosition(elevation=0, azimuth=0, distance=distance)
+        elif view_mode == "Front View (XZ)":
+            self.gl_canvas.setCameraPosition(elevation=0, azimuth=-90, distance=distance)
+        else:
+            # Default 3D
+            self.gl_canvas.setCameraPosition(elevation=30, azimuth=-45, distance=distance)
 
+    def update_plot(self) -> None:
+        """Extracts table data and updates the hardware-accelerated OpenGL plot."""
+        points = []
         for row in range(self.table_waypoints.rowCount()):
             try:
                 x_i = self.table_waypoints.item(row, 0)
                 y_i = self.table_waypoints.item(row, 1)
                 z_i = self.table_waypoints.item(row, 2)
                 if x_i and y_i and z_i:
-                    x_vals.append(float(x_i.text()))
-                    y_vals.append(float(y_i.text()))
-                    z_vals.append(float(z_i.text()))
+                    points.append([float(x_i.text()), float(y_i.text()), -float(z_i.text())])
             except ValueError:
                 pass
 
-        lbl_x = "X (m)" if is_cartesian else "Latitude (deg)"
-        lbl_y = "Y (m)" if is_cartesian else "Longitude (deg)"
-        lbl_z = "Z (m)" if is_cartesian else "Altitude (m)"
+        # Clean old plot items
+        if self.line_item: self.gl_canvas.removeItem(self.line_item)
+        if self.scatter_item: self.gl_canvas.removeItem(self.scatter_item)
+        if self.start_point: self.gl_canvas.removeItem(self.start_point)
+        if self.end_point: self.gl_canvas.removeItem(self.end_point)
 
-        if "3D" in view_mode:
-            self.ax = self.figure.add_subplot(111, projection="3d")
-            self.ax.set_axis_on()
-            self.ax.grid(True, linestyle=":", color="#444444", alpha=0.5)
-            self.ax.xaxis.set_pane_color((0, 0, 0, 0))
-            self.ax.yaxis.set_pane_color((0, 0, 0, 0))
-            self.ax.zaxis.set_pane_color((0, 0, 0, 0))
-            self.ax.xaxis.line.set_color("#555555")
-            self.ax.yaxis.line.set_color("#555555")
-            self.ax.zaxis.line.set_color("#555555")
+        if not points:
+            return
 
-            self.ax.set_xlabel(lbl_x, labelpad=15, fontsize=12)
-            self.ax.set_ylabel(lbl_y, labelpad=15, fontsize=12)
-            self.ax.set_zlabel(lbl_z, labelpad=15, fontsize=12)
-            self.figure.subplots_adjust(left=0.05, right=0.95, bottom=0.15, top=0.95)
-            
-            try:
-                self.ax.set_box_aspect(None)
-            except Exception:
-                pass
+        # Convert to numpy array for OpenGL
+        pts_array = np.array(points, dtype=np.float32)
 
-            if x_vals:
-                self.ax.plot(
-                    x_vals, y_vals, z_vals, linestyle="-", color="#00d4ff", linewidth=1.5
-                )
-                self.ax.scatter(x_vals, y_vals, z_vals, color="white", s=25)
-                self.ax.plot(
-                    [x_vals[0]], [y_vals[0]], [z_vals[0]], 
-                    marker="s", color="#4caf50", markersize=8
-                )
-                if len(x_vals) > 1:
-                    self.ax.plot(
-                        [x_vals[-1]], [y_vals[-1]], [z_vals[-1]], 
-                        marker="X", color="#f44336", markersize=8
-                    )
-                self.ax.invert_zaxis()
-        else:
-            self.ax = self.figure.add_subplot(111)
-            self.ax.grid(True, linestyle=":", color="#444444", alpha=0.5)
-            
-            for spine in self.ax.spines.values():
-                spine.set_color("#555555")
-                
-            self.figure.subplots_adjust(left=0.1, right=0.95, bottom=0.15, top=0.92)
+        # 1. Main Path Line
+        self.line_item = gl.GLLinePlotItem(pos=pts_array, color=pg.glColor('#00d4ff'), width=2.0)
+        self.gl_canvas.addItem(self.line_item)
 
-            if x_vals:
-                if "XY" in view_mode:
-                    h, v = x_vals, y_vals
-                    self.ax.set_xlabel(lbl_x, fontsize=12)
-                    self.ax.set_ylabel(lbl_y, fontsize=12)
-                elif "YZ" in view_mode:
-                    h, v = y_vals, z_vals
-                    self.ax.set_xlabel(lbl_y, fontsize=12)
-                    self.ax.set_ylabel(lbl_z, fontsize=12)
-                else:
-                    h, v = x_vals, z_vals
-                    self.ax.set_xlabel(lbl_x, fontsize=12)
-                    self.ax.set_ylabel(lbl_z, fontsize=12)
+        # 2. General Points (White)
+        self.scatter_item = gl.GLScatterPlotItem(pos=pts_array, color=pg.glColor('w'), size=8.0)
+        self.gl_canvas.addItem(self.scatter_item)
 
-                self.ax.plot(
-                    h, v, linestyle="-", color="#00d4ff", marker="o", 
-                    markerfacecolor="white"
-                )
-                self.ax.plot([h[0]], [v[0]], marker="s", color="#4caf50", markersize=8)
-                
-                if len(h) > 1:
-                    self.ax.plot(
-                        [h[-1]], [v[-1]], marker="X", color="#f44336", markersize=8
-                    )
-                    
-                if "YZ" in view_mode or "XZ" in view_mode:
-                    self.ax.invert_yaxis()
+        # 3. Start Point (Green)
+        self.start_point = gl.GLScatterPlotItem(pos=np.array([pts_array[0]]), color=pg.glColor('#4caf50'), size=15.0)
+        self.gl_canvas.addItem(self.start_point)
 
-        self.ax.set_facecolor("#2b2b2b")
-        self.canvas.draw()
+        # 4. End Point (Red)
+        if len(pts_array) > 1:
+            self.end_point = gl.GLScatterPlotItem(pos=np.array([pts_array[-1]]), color=pg.glColor('#f44336'), size=15.0)
+            self.gl_canvas.addItem(self.end_point)
 
     # =========================================================================
     # MATHEMATICAL ENGINE INTEGRATION AND GENERAL LOGIC
     # =========================================================================
     def start_simulation(self) -> None:
-        """Validates configuration and triggers the ROS 2 simulation."""
         mission_data = self._collect_mission_data()
         aircraft_data = self._collect_aircraft_data()
 
@@ -882,16 +782,9 @@ class TabMission(QWidget):
             return
 
         self.lbl_sim_status.setText("Status: ROS Mission Triggered!")
-        self.lbl_sim_status.setStyleSheet(
-            "color: #00ff00; font-size: 13px; font-weight: bold;"
-        )
+        self.lbl_sim_status.setStyleSheet("color: #00ff00; font-size: 13px; font-weight: bold;")
 
     def _collect_aircraft_data(self) -> Dict[str, float]:
-        """Retrieves aircraft parameters from the sibling aircraft tab.
-
-        Returns:
-            Dict[str, float]: The dictionary of aircraft parameters.
-        """
         data = {}
         tab_ac = getattr(self.main_window, "tab_aircraft", None)
         if tab_ac:
@@ -900,15 +793,8 @@ class TabMission(QWidget):
         return data
 
     def _collect_mission_data(self) -> Dict[str, Any]:
-        """Aggregates all mission inputs from the UI into a dictionary.
-
-        Returns:
-            Dict[str, Any]: A serialized dictionary of the mission profile.
-        """
         data = {
-            "coordinate_system": "cartesian"
-            if self.radio_cartesian.isChecked()
-            else "geodesic",
+            "coordinate_system": "cartesian" if self.radio_cartesian.isChecked() else "geodesic",
             "wind": {
                 "use_api": self.radio_api_wind.isChecked(),
                 "type": self.combo_wind_type.currentText(),
@@ -945,7 +831,6 @@ class TabMission(QWidget):
         return data
 
     def reset_mission(self) -> None:
-        """Prompts the user and resets all mission parameters to default."""
         msg = CustomMessageBox(
             "New Mission",
             "Do you want to reset everything?",
@@ -976,7 +861,6 @@ class TabMission(QWidget):
             self.update_plot()
 
     def save_mission(self) -> None:
-        """Saves the current mission as a JSON file and exports to ROS 2."""
         file_path, _ = QFileDialog.getSaveFileName(
             self, "Save Mission", str(MISSIONS_DIR), "Mission Files (*.json)"
         )
@@ -1009,7 +893,6 @@ class TabMission(QWidget):
             msg.exec()
 
     def export_to_ros_yaml(self) -> None:
-        """Exports the current mission parameters into ROS 2 YAML configs."""
         waypoints_list = []
         for row in range(self.table_waypoints.rowCount()):
             try:
@@ -1062,7 +945,6 @@ class TabMission(QWidget):
                 yaml.dump(ros_data, file, default_flow_style=None, sort_keys=False)
 
     def load_mission(self) -> None:
-        """Prompts the user to select and load a mission JSON file."""
         file_path, _ = QFileDialog.getOpenFileName(
             self, "Load Mission", str(MISSIONS_DIR), "Mission Files (*.json)"
         )
@@ -1098,19 +980,13 @@ class TabMission(QWidget):
 
             self.table_waypoints.setRowCount(0)
             for wp in data.get("waypoints", []):
-                self._add_row_to_table(
-                    wp.get("x", 0.0), wp.get("y", 0.0), wp.get("z", 0.0)
-                )
+                self._add_row_to_table(wp.get("x", 0.0), wp.get("y", 0.0), wp.get("z", 0.0))
 
             traj_data = data.get("trajectory", {})
-            self.combo_traj_type.setCurrentText(
-                traj_data.get("type", "5th Degree Polynomial")
-            )
+            self.combo_traj_type.setCurrentText(traj_data.get("type", "5th Degree Polynomial"))
             self.spin_speed_xy.setValue(traj_data.get("speed_xy", 10.0))
             self.spin_speed_z.setValue(traj_data.get("speed_z", 5.0))
-            self.combo_yaw_mode.setCurrentText(
-                traj_data.get("yaw_mode", "Free (Initial Fixed)")
-            )
+            self.combo_yaw_mode.setCurrentText(traj_data.get("yaw_mode", "Free (Initial Fixed)"))
 
             yaw_t = traj_data.get("yaw_target", {})
             self.spin_yaw_x.setValue(yaw_t.get("x", 0.0))
@@ -1145,7 +1021,6 @@ class TabMission(QWidget):
             msg.exec()
 
     def toggle_gust_input(self) -> None:
-        """Enables or disables gust parameter fields based on wind type and API mode."""
         is_api = getattr(self, 'radio_api_wind', None) and self.radio_api_wind.isChecked()
         
         if is_api:
@@ -1161,7 +1036,6 @@ class TabMission(QWidget):
                 self.spin_wind_gust.setEnabled(True)
 
     def _toggle_weather_mode(self) -> None:
-        """Shows or hides the API location inputs and firmly locks manual fields."""
         is_api = self.radio_api_wind.isChecked()
         self.loc_container.setVisible(is_api)
         
@@ -1177,7 +1051,6 @@ class TabMission(QWidget):
         self.toggle_gust_input()
         
         if is_api:
-            # Absolute Visual Lock CSS
             locked_style = (
                 "QDoubleSpinBox {"
                 "background-color: #1a1a1a; "
@@ -1193,21 +1066,15 @@ class TabMission(QWidget):
                 spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
                 spin.setStyleSheet(locked_style)
         else:
-            # Default Edit CSS
             for spin in spins:
                 spin.setReadOnly(False)
                 spin.setFocusPolicy(Qt.FocusPolicy.WheelFocus)
                 spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.UpDownArrows)
                 spin.setStyleSheet("")
                 
-        # Re-enforce gust availability state after reset
         self.toggle_gust_input()
 
-    # -------------------------------------------------------------------------
-    # OPENWEATHER API INTEGRATION
-    # -------------------------------------------------------------------------
     def fetch_weather_data(self) -> None:
-        """Fetches live wind and weather data based on current coordinates."""
         lat = self.spin_loc_lat.value()
         lon = self.spin_loc_lon.value()
 
@@ -1284,7 +1151,6 @@ class TabMission(QWidget):
             msg.exec()
 
     def update_coordinate_labels(self) -> None:
-        """Updates table headers depending on the coordinate system chosen."""
         if self.radio_cartesian.isChecked():
             self.label_x.setText("X [m]:")
             self.label_y.setText("Y [m]:")
@@ -1299,7 +1165,6 @@ class TabMission(QWidget):
             )
 
     def toggle_toolbar(self) -> None:
-        """Enables or disables table toolbar buttons based on selection count."""
         selected_rows = set(item.row() for item in self.table_waypoints.selectedItems())
         count = len(selected_rows)
         
@@ -1310,11 +1175,6 @@ class TabMission(QWidget):
         self.btn_rem.setEnabled(count >= 1)
 
     def handle_item_click(self, item: QTableWidgetItem) -> None:
-        """Manages custom row selection logic.
-
-        Args:
-            item (QTableWidgetItem): The item clicked in the table.
-        """
         row = item.row()
         if self._last_selected_row == row:
             self.table_waypoints.clearSelection()
@@ -1323,13 +1183,6 @@ class TabMission(QWidget):
             self._last_selected_row = row
 
     def _add_row_to_table(self, x: float, y: float, z: float) -> None:
-        """Inserts a new coordinate row into the waypoint table.
-
-        Args:
-            x (float): X coordinate or Latitude.
-            y (float): Y coordinate or Longitude.
-            z (float): Z coordinate or Altitude.
-        """
         row = self.table_waypoints.rowCount()
         self.table_waypoints.insertRow(row)
         dec = 2 if self.radio_cartesian.isChecked() else 6
@@ -1339,7 +1192,6 @@ class TabMission(QWidget):
         self.table_waypoints.setItem(row, 2, QTableWidgetItem(f"{z:.2f}"))
 
     def add_manual_waypoint(self) -> None:
-        """Adds a waypoint from the spinbox inputs to the table."""
         self._add_row_to_table(
             self.spin_x.value(), self.spin_y.value(), self.spin_z.value()
         )
@@ -1348,13 +1200,11 @@ class TabMission(QWidget):
         self.spin_z.setValue(0.0)
 
     def edit_waypoint(self) -> None:
-        """Triggers the edit mode for the currently selected waypoint."""
         current_row = self.table_waypoints.currentRow()
         if current_row >= 0:
             self.table_waypoints.editItem(self.table_waypoints.item(current_row, 0))
 
     def remove_waypoint(self) -> None:
-        """Removes the selected waypoints from the table."""
         selected_items = self.table_waypoints.selectedItems()
         if not selected_items:
             return
@@ -1372,7 +1222,6 @@ class TabMission(QWidget):
         self.update_plot()
 
     def duplicate_waypoint(self) -> None:
-        """Duplicates the selected waypoints and inserts them below."""
         selected_items = self.table_waypoints.selectedItems()
         if not selected_items:
             return
@@ -1402,26 +1251,18 @@ class TabMission(QWidget):
         self.update_plot()
 
     def move_waypoint_up(self) -> None:
-        """Moves the selected waypoint up one row in the table."""
         current_row = self.table_waypoints.currentRow()
         if current_row > 0:
             self._swap_rows(current_row, current_row - 1)
             self.table_waypoints.setCurrentCell(current_row - 1, 0)
 
     def move_waypoint_down(self) -> None:
-        """Moves the selected waypoint down one row in the table."""
         current_row = self.table_waypoints.currentRow()
         if current_row >= 0 and current_row < self.table_waypoints.rowCount() - 1:
             self._swap_rows(current_row, current_row + 1)
             self.table_waypoints.setCurrentCell(current_row + 1, 0)
 
     def _swap_rows(self, row1: int, row2: int) -> None:
-        """Swaps the data of two rows within the waypoint table.
-
-        Args:
-            row1 (int): The index of the first row.
-            row2 (int): The index of the second row.
-        """
         for col in range(self.table_waypoints.columnCount()):
             item1 = self.table_waypoints.takeItem(row1, col)
             item2 = self.table_waypoints.takeItem(row2, col)
@@ -1429,7 +1270,6 @@ class TabMission(QWidget):
             self.table_waypoints.setItem(row2, col, item1)
 
     def load_waypoints_from_file(self) -> None:
-        """Loads a batch of coordinates from a CSV or JSON file into the table."""
         try:
             from paths import WAYPOINTS_DIR
             base_dir = str(WAYPOINTS_DIR)
@@ -1473,12 +1313,8 @@ class TabMission(QWidget):
             self.update_plot()
 
     def reset_graph_view(self) -> None:
-        """Resets the 3D perspective to the default angle."""
-        if hasattr(self, "ax") and self.view_combo.currentText() == "3D Perspective":
-            self.ax.view_init(elev=20, azim=-35)
-            self.canvas.draw()
+        self.set_camera_view()
 
     def toggle_yaw_target(self) -> None:
-        """Shows or hides target coordinates based on the selected Yaw Mode."""
         is_target_mode = "Target" in self.combo_yaw_mode.currentText()
         self.yaw_target_container.setVisible(is_target_mode)

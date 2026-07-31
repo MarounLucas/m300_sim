@@ -58,16 +58,7 @@ class UIFactory:
     def create_toolbar_button(
         style: QStyle, icon_enum: QStyle.StandardPixmap, tooltip: str
     ) -> QPushButton:
-        """Creates a standardized toolbar button.
-
-        Args:
-            style (QStyle): The application's current QStyle.
-            icon_enum (QStyle.StandardPixmap): The standard icon to display.
-            tooltip (str): The tooltip text for the button.
-
-        Returns:
-            QPushButton: The configured button widget.
-        """
+        """Creates a standardized toolbar button."""
         btn = QPushButton()
         btn.setIcon(style.standardIcon(icon_enum))
         btn.setToolTip(tooltip)
@@ -75,14 +66,7 @@ class UIFactory:
 
     @staticmethod
     def create_param_group(title: str) -> Tuple[QGroupBox, QFormLayout]:
-        """Creates a standardized group box with a form layout.
-
-        Args:
-            title (str): The title of the group box.
-
-        Returns:
-            Tuple[QGroupBox, QFormLayout]: The group box and its internal layout.
-        """
+        """Creates a standardized group box with a form layout."""
         grp = QGroupBox(title)
         grp.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
@@ -100,17 +84,16 @@ class UIFactory:
         return grp, form
 
     @staticmethod
-    def create_spinbox(decimals: int = 3) -> QDoubleSpinBox:
+    def create_spinbox(decimals: int = 3, min_val: float = 0.0, max_val: float = 99999.0) -> QDoubleSpinBox:
         """Creates a standardized double spinbox for parameter input.
-
+        
         Args:
             decimals (int): The number of decimal places to display.
-
-        Returns:
-            QDoubleSpinBox: The configured spinbox widget.
+            min_val (float): Minimum allowed value (prevents physical impossibilities).
+            max_val (float): Maximum allowed value.
         """
         spin = QDoubleSpinBox()
-        spin.setRange(-99999.0, 99999.0)
+        spin.setRange(min_val, max_val)
         spin.setDecimals(decimals)
         spin.setValue(0.0)
         spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
@@ -126,48 +109,73 @@ class UIFactory:
 
 
 class ParameterHelpDialog(QDialog):
-    """Floating help dialog detailing the UAV parameters."""
+    """Floating help dialog detailing the UAV parameters and UX guide."""
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
-        """Initializes the help dialog and its HTML content.
-
-        Args:
-            parent (Optional[QWidget]): The parent widget.
-        """
+        """Initializes the help dialog and its HTML content."""
         super().__init__(parent)
         self.setWindowTitle("Documentation - UAV Parameters")
-        self.resize(850, 650)
+        self.resize(900, 700)
 
-        # Ensure the layout occupies 100% of the window
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
         browser = QTextBrowser()
         browser.setOpenExternalLinks(True)
 
-        html_content = """
+        # Gets the absolute path for local assets (future-proofing for GIFs)
+        assets_dir = current_dir.parent.parent / "assets" / "img"
+        assets_path_str = assets_dir.as_posix()
+
+        html_content = f"""
         <html>
         <head>
         <style>
-            body { 
+            body {{ 
                 font-family: 'Segoe UI', Arial, sans-serif; 
                 font-size: 14px; 
                 line-height: 1.6; 
                 color: #e0e0e0; 
                 padding: 15px 25px; 
-            }
-            h2 { color: #00d4ff; margin-top: 10px; border-bottom: 1px solid #555; 
-                 padding-bottom: 5px;}
-            h3 { color: #4caf50; margin-top: 25px; margin-bottom: 5px; }
-            ul { margin-top: 5px; padding-left: 25px; }
-            li { margin-bottom: 8px; }
-            b { color: #ffffff; }
+            }}
+            h2 {{ color: #00d4ff; margin-top: 10px; border-bottom: 1px solid #555; 
+                 padding-bottom: 5px;}}
+            h3 {{ color: #4caf50; margin-top: 25px; margin-bottom: 5px; }}
+            ul {{ margin-top: 5px; padding-left: 25px; }}
+            li {{ margin-bottom: 8px; }}
+            b {{ color: #ffffff; }}
+            .usage-box {{
+                background-color: #353535;
+                border-left: 4px solid #00d4ff;
+                padding: 10px 15px;
+                margin-top: 15px;
+            }}
+            .img-placeholder {{
+                display: block;
+                margin: 20px auto;
+                max-width: 80%;
+                border: 1px solid #555;
+            }}
         </style>
         </head>
         <body>
-        <h2>UAV Dynamic Simulation Parameters</h2>
-        <p>This section details the physical and aerodynamic attributes required to 
-        simulate the multirotor's behavior with high fidelity.</p>
+        <h2>UAV Configuration & Usage Guide</h2>
+        
+        <div class="usage-box">
+            <b>Quick Start:</b>
+            <ul>
+                <li><b>Load Model (Ctrl+O):</b> Loads a previously saved `.json` profile.</li>
+                <li><b>Save Model (Ctrl+S):</b> Saves your current parameters and automatically updates the ROS 2 physical engine (`aircraft_params.yaml`).</li>
+                <li><b>Reset (Ctrl+R):</b> Clears all fields safely.</li>
+            </ul>
+            <i>Note: Physical properties like Mass and Inertia are strictly prevented from taking negative values to maintain mathematical stability.</i>
+        </div>
+
+        <!-- Placeholder for future GIF/Media integration -->
+        <!-- <img class="img-placeholder" src="file:///{assets_path_str}/aircraft_tutorial.gif" alt="Tutorial GIF"> -->
+
+        <h2>Dynamic Simulation Parameters Glossary</h2>
+        <p>This section details the physical attributes required to simulate the multirotor's behavior with high fidelity.</p>
         
         <h3>1. Mass and Inertia</h3>
         <ul>
@@ -175,7 +183,7 @@ class ParameterHelpDialog(QDialog):
             <li><b>jx:</b> Moment of inertia on the x-axis [kg&middot;m&sup2;].</li>
             <li><b>jy:</b> Moment of inertia on the y-axis [kg&middot;m&sup2;].</li>
             <li><b>jz:</b> Moment of inertia on the z-axis [kg&middot;m&sup2;].</li>
-            <li><b>jxz:</b> Product of inertia in the xz-plane [kg&middot;m&sup2;].</li>
+            <li><b>jxz:</b> Product of inertia in the xz-plane [kg&middot;m&sup2;]. <i>(Can be negative)</i></li>
         </ul>
 
         <h3>2. Center of Mass Distances</h3>
@@ -210,7 +218,7 @@ class ParameterHelpDialog(QDialog):
         <ul>
             <li><b>max_horizontal_speed:</b> Maximum horizontal linear speed [m/s].</li>
             <li><b>cruise_speed:</b> Nominal horizontal linear speed [m/s].</li>
-            <li><b>max_ascent_speed:</b> Maximum vertical linear speed during climb [m/s].</li>
+            <li><b>max_ascent_speed:</b> Maximum vertical linear speed during climb [m/s]. <i>(Usually negative in NED frame)</i></li>
             <li><b>max_descent_speed:</b> Maximum vertical linear speed during fall [m/s].</li>
             <li><b>max_tilt_angle:</b> Maximum Pitch/Roll angle [rad].</li>
             <li><b>max_roll_pitch_rate:</b> Maximum angular velocity rate (Roll/Pitch) [rad/s].</li>
@@ -235,15 +243,6 @@ class CustomMessageBox(QDialog):
         msg_type: str = "info",
         parent: Optional[QWidget] = None,
     ) -> None:
-        """Initializes the custom message box with tailored styling.
-
-        Args:
-            title (str): The window title.
-            main_text (str): The primary message header.
-            detail_text (str): Optional secondary explanatory text.
-            msg_type (str): The type of prompt ('info', 'question', 'success', 'error').
-            parent (Optional[QWidget]): The parent widget.
-        """
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setMinimumWidth(450)
@@ -264,7 +263,6 @@ class CustomMessageBox(QDialog):
         layout.setSpacing(15)
         layout.setContentsMargins(20, 20, 20, 20)
 
-        # Word-wrapped main text
         lbl_main = QLabel(f"<h3 style='margin: 0;'>{main_text}</h3>")
         lbl_main.setWordWrap(True)
         layout.addWidget(lbl_main)
@@ -275,7 +273,6 @@ class CustomMessageBox(QDialog):
             lbl_detail.setStyleSheet("color: #a0a0a0; font-size: 13px;")
             layout.addWidget(lbl_detail)
 
-        # Buttons setup
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
 
@@ -296,26 +293,18 @@ class CustomMessageBox(QDialog):
         layout.addLayout(btn_layout)
 
     def accept_yes(self) -> None:
-        """Sets the dialog result to Yes and accepts."""
         self.result = QMessageBox.StandardButton.Yes
         self.accept()
 
     def reject_no(self) -> None:
-        """Sets the dialog result to No and rejects."""
         self.result = QMessageBox.StandardButton.No
         self.reject()
 
     def accept_ok(self) -> None:
-        """Sets the dialog result to OK and accepts."""
         self.result = QMessageBox.StandardButton.Ok
         self.accept()
 
     def exec(self) -> QMessageBox.StandardButton:
-        """Executes the dialog and returns the selected button.
-
-        Returns:
-            QMessageBox.StandardButton: The button clicked by the user.
-        """
         super().exec()
         return self.result
 
@@ -324,47 +313,32 @@ class CustomMessageBox(QDialog):
 # MAIN CLASS
 # =========================================================================
 class TabAircraft(QWidget):
-    """UI Tab for managing UAV model parameters.
-
-    Provides fields to configure mass, inertia, propulsion, and aerodynamics,
-    allowing the user to save/load models to disk and export them to ROS 2.
-    """
+    """UI Tab for managing UAV model parameters."""
 
     def __init__(self) -> None:
-        """Initializes the aircraft configuration tab."""
         super().__init__()
-        # Allows the tab background to receive focus when clicked
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.aircraft_spins: Dict[str, QDoubleSpinBox] = {}
         self._build_ui()
         self._setup_shortcuts()
 
     def _setup_shortcuts(self) -> None:
-        """Configures keyboard shortcuts for the tab's main actions."""
-        # Ctrl+R: Reset
         self.shortcut_new = QShortcut(QKeySequence("Ctrl+R"), self)
         self.shortcut_new.setContext(Qt.ShortcutContext.WindowShortcut)
         self.shortcut_new.activated.connect(self._trigger_reset)
 
-        # Ctrl+S: Save
         self.shortcut_save = QShortcut(QKeySequence("Ctrl+S"), self)
         self.shortcut_save.setContext(Qt.ShortcutContext.WindowShortcut)
         self.shortcut_save.activated.connect(self._trigger_save)
 
-        # Ctrl+O: Open/Load
         self.shortcut_load = QShortcut(QKeySequence("Ctrl+O"), self)
         self.shortcut_load.setContext(Qt.ShortcutContext.WindowShortcut)
         self.shortcut_load.activated.connect(self._trigger_load)
 
-        # F1: Help
         self.shortcut_help = QShortcut(QKeySequence("F1"), self)
         self.shortcut_help.setContext(Qt.ShortcutContext.WindowShortcut)
         self.shortcut_help.activated.connect(self._trigger_help)
 
-    # =========================================================================
-    # SAFE SHORTCUT TRIGGERS
-    # Ensures actions only trigger if this tab is actively visible.
-    # =========================================================================
     def _trigger_reset(self) -> None:
         if self.isVisible():
             self.reset_aircraft()
@@ -382,7 +356,6 @@ class TabAircraft(QWidget):
             self.show_help_window()
 
     def _build_ui(self) -> None:
-        """Constructs the main layout for the tab."""
         layout = QVBoxLayout(self)
         layout.setSpacing(20)
 
@@ -391,11 +364,6 @@ class TabAircraft(QWidget):
         layout.addStretch()
 
     def _build_top_section(self) -> QVBoxLayout:
-        """Constructs the toolbar and identification section.
-
-        Returns:
-            QVBoxLayout: The layout containing the top controls.
-        """
         top_layout = QVBoxLayout()
         top_layout.setSpacing(15)
 
@@ -426,7 +394,7 @@ class TabAircraft(QWidget):
         btn_help = UIFactory.create_toolbar_button(
             style,
             QStyle.StandardPixmap.SP_MessageBoxInformation,
-            "Parameter Details (F1)",
+            "Parameter Details & Guide (F1)",
         )
         btn_help.clicked.connect(self.show_help_window)
         global_toolbar_layout.addWidget(btn_help)
@@ -444,7 +412,6 @@ class TabAircraft(QWidget):
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
 
-        # FIX FOR BLACK PLACEHOLDER: Custom stylesheet injection
         self.line_aircraft_name.setStyleSheet(
             "QLineEdit { color: #ffffff; background-color: #2b2b2b; "
             "border: 1px solid #555555; padding-left: 5px; }\n"
@@ -457,37 +424,32 @@ class TabAircraft(QWidget):
         return top_layout
 
     def show_help_window(self) -> None:
-        """Instantiates and displays the parameter help dialog."""
         self.help_dialog = ParameterHelpDialog(self)
         self.help_dialog.show()
 
     def _build_bottom_section(self) -> QHBoxLayout:
-        """Constructs the multi-column parameter input section.
-
-        Returns:
-            QHBoxLayout: The layout containing the parameter columns.
-        """
         bottom_layout = QHBoxLayout()
         bottom_layout.setSpacing(20)
 
+        # Tuple structure: (Label, Decimals, Min_Value)
         col1_data = [
             (
                 "Mass and Inertia",
                 {
-                    "mass": ("Mass (kg):", 3),
-                    "jx": ("Inertia X (kg·m²):", 3),
-                    "jy": ("Inertia Y (kg·m²):", 3),
-                    "jz": ("Inertia Z (kg·m²):", 3),
-                    "jxz": ("Inertia Product XZ:", 3),
+                    "mass": ("Mass (kg):", 3, 0.0),
+                    "jx": ("Inertia X (kg·m²):", 3, 0.0),
+                    "jy": ("Inertia Y (kg·m²):", 3, 0.0),
+                    "jz": ("Inertia Z (kg·m²):", 3, 0.0),
+                    "jxz": ("Inertia Product XZ:", 3, -999.0), # Product of inertia can be negative
                 },
             ),
             (
                 "Center of Mass Distances",
                 {
-                    "dx_arm": ("X-Axis - dx (m):", 3),
-                    "dy_fw": ("Y-Axis - Front (m):", 3),
-                    "dy_bw": ("Y-Axis - Rear (m):", 3),
-                    "dz": ("Z-Axis - dz (m):", 3),
+                    "dx_arm": ("X-Axis - dx (m):", 3, 0.0),
+                    "dy_fw": ("Y-Axis - Front (m):", 3, 0.0),
+                    "dy_bw": ("Y-Axis - Rear (m):", 3, 0.0),
+                    "dz": ("Z-Axis - dz (m):", 3, 0.0),
                 },
             ),
         ]
@@ -496,23 +458,23 @@ class TabAircraft(QWidget):
             (
                 "Propulsion (Motor & Propeller)",
                 {
-                    "tau": ("Motor Constant (τ):", 3),
-                    "kp": ("Correction Gain (K<sub>p</sub>):", 3),
-                    "xi": ("Damping (ξ):", 3),
-                    "omega_min": ("Min Rotation (rad/s):", 3),
-                    "omega_max": ("Max Rotation (rad/s):", 3),
-                    "prop_diameter": ("Prop. Diameter (m):", 4),
-                    "c_t0": ("Thrust Coef (C<sub>T0</sub>):", 4),
-                    "c_p0": ("Power Coef (C<sub>P0</sub>):", 4),
-                    "c_q0": ("Torque Coef (C<sub>Q0</sub>):", 4),
+                    "tau": ("Motor Constant (τ):", 3, 0.0),
+                    "kp": ("Correction Gain (K<sub>p</sub>):", 3, 0.0),
+                    "xi": ("Damping (ξ):", 3, 0.0),
+                    "omega_min": ("Min Rotation (rad/s):", 3, 0.0),
+                    "omega_max": ("Max Rotation (rad/s):", 3, 0.0),
+                    "prop_diameter": ("Prop. Diameter (m):", 4, 0.0),
+                    "c_t0": ("Thrust Coef (C<sub>T0</sub>):", 4, 0.0),
+                    "c_p0": ("Power Coef (C<sub>P0</sub>):", 4, 0.0),
+                    "c_q0": ("Torque Coef (C<sub>Q0</sub>):", 4, 0.0),
                 },
             ),
             (
                 "Global Aerodynamics",
                 {
-                    "cd": ("Drag Coef (C<sub>d</sub>):", 3),
-                    "k_t0": ("Thrust Const (k<sub>T0</sub>):", 8),
-                    "k_q0": ("Torque Const (k<sub>Q0</sub>):", 8),
+                    "cd": ("Drag Coef (C<sub>d</sub>):", 3, 0.0),
+                    "k_t0": ("Thrust Const (k<sub>T0</sub>):", 8, 0.0),
+                    "k_q0": ("Torque Const (k<sub>Q0</sub>):", 8, 0.0),
                 },
             ),
         ]
@@ -521,13 +483,13 @@ class TabAircraft(QWidget):
             (
                 "Kinematic Limits (Safety)",
                 {
-                    "max_horizontal_speed": ("Max Horiz. Speed (m/s):", 3),
-                    "cruise_speed": ("Cruise Speed (m/s):", 3),
-                    "max_ascent_speed": ("Max Ascent Speed (m/s):", 3),
-                    "max_descent_speed": ("Max Descent Speed (m/s):", 3),
-                    "max_tilt_angle": ("Max Tilt Angle (rad):", 3),
-                    "max_roll_pitch_rate": ("Max Roll/Pitch Rate:", 3),
-                    "max_yaw_rate": ("Max Yaw Rate (rad/s):", 3),
+                    "max_horizontal_speed": ("Max Horiz. Speed (m/s):", 3, 0.0),
+                    "cruise_speed": ("Cruise Speed (m/s):", 3, 0.0),
+                    "max_ascent_speed": ("Max Ascent Speed (m/s):", 3, -999.0), # Negative in NED
+                    "max_descent_speed": ("Max Descent Speed (m/s):", 3, 0.0),
+                    "max_tilt_angle": ("Max Tilt Angle (rad):", 3, 0.0),
+                    "max_roll_pitch_rate": ("Max Roll/Pitch Rate:", 3, 0.0),
+                    "max_yaw_rate": ("Max Yaw Rate (rad/s):", 3, 0.0),
                 },
             )
         ]
@@ -539,22 +501,13 @@ class TabAircraft(QWidget):
         return bottom_layout
 
     def _create_column_layout(
-        self, groups_data: List[Tuple[str, Dict[str, Tuple[str, int]]]]
+        self, groups_data: List[Tuple[str, Dict[str, Tuple[str, int, float]]]]
     ) -> QVBoxLayout:
-        """Creates a vertical layout column populated with parameter groups.
-
-        Args:
-            groups_data (List[Tuple[str, Dict[str, Tuple[str, int]]]]): 
-                Data mapping group titles to their fields and decimals.
-
-        Returns:
-            QVBoxLayout: The fully populated column layout.
-        """
         col_layout = QVBoxLayout()
         for title, params in groups_data:
             grp, form = UIFactory.create_param_group(title)
-            for key, (label_text, decimals) in params.items():
-                spin = UIFactory.create_spinbox(decimals)
+            for key, (label_text, decimals, min_val) in params.items():
+                spin = UIFactory.create_spinbox(decimals, min_val=min_val)
                 self.aircraft_spins[key] = spin
 
                 lbl = QLabel(label_text)
@@ -573,7 +526,6 @@ class TabAircraft(QWidget):
         return col_layout
 
     def reset_aircraft(self) -> None:
-        """Prompts the user and resets all parameter fields to zero."""
         msg = CustomMessageBox(
             "New Model",
             "Do you want to reset all parameters?",
@@ -587,7 +539,6 @@ class TabAircraft(QWidget):
                 spin.setValue(0.0)
 
     def save_aircraft(self) -> None:
-        """Saves the parameters as a JSON file and exports to ROS 2 YAML."""
         file_path, _ = QFileDialog.getSaveFileName(
             self, "Save Aircraft Model", str(AIRCRAFT_MODELS_DIR), "JSON Files (*.json)"
         )
@@ -602,11 +553,9 @@ class TabAircraft(QWidget):
             aircraft_data[key] = spin.value()
 
         try:
-            # Save standard backup JSON
             with open(file_path, "w", encoding="utf-8") as file:
                 json.dump(aircraft_data, file, indent=4)
 
-            # Update the ROS 2 YAML configurations
             self.export_to_ros_yaml()
 
             msg = CustomMessageBox(
@@ -625,7 +574,6 @@ class TabAircraft(QWidget):
             msg.exec()
 
     def export_to_ros_yaml(self) -> None:
-        """Reads current values and overwrites aircraft_params.yaml in SRC/INSTALL."""
         ros_data = {
             "quadcopter_node": {
                 "ros__parameters": {
@@ -660,19 +608,16 @@ class TabAircraft(QWidget):
             },
         }
 
-        # Save in the Source folder (for safety/persistence)
         yaml_path_src = ROS_CONFIG_DIR / "aircraft_params.yaml"
         with open(yaml_path_src, "w", encoding="utf-8") as file:
             yaml.dump(ros_data, file, default_flow_style=False, sort_keys=False)
 
-        # Save in the ROS Install folder (for instant execution)
         if ROS_INSTALL_DIR and ROS_INSTALL_DIR.exists():
             yaml_path_install = ROS_INSTALL_DIR / "aircraft_params.yaml"
             with open(yaml_path_install, "w", encoding="utf-8") as file:
                 yaml.dump(ros_data, file, default_flow_style=False, sort_keys=False)
 
     def load_aircraft_file(self) -> None:
-        """Prompts the user to select and load an aircraft parameter JSON file."""
         file_path, _ = QFileDialog.getOpenFileName(
             self, "Select Aircraft", str(AIRCRAFT_MODELS_DIR), "JSON Files (*.json)"
         )
