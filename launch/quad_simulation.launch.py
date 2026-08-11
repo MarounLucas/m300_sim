@@ -30,7 +30,7 @@ def generate_launch_description():
     )
 
     joy_node = Node(package="joy", executable="joy_node", name="joy_node")
-    joy_map_node = Node(package='m300_sim', executable='joy_sub', name='joy_mapper')
+    joy_map_node = Node(package='m300_sim', executable='joy_sub', name='joystick_node')
     traj_node = Node(package='m300_sim', executable='traj_pub', name='trajectory_node', parameters=[mission_config])
     ctrl_node = Node(package='m300_sim', executable='ctrl_sub', name='controller_node', parameters=[aircraft_config])
     dyn_node = Node(package='m300_sim', executable='dyn_pub', name='quadcopter_node', parameters=[aircraft_config])
