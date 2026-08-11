@@ -80,12 +80,12 @@
       }
 
       var buildUrl = "Build";
-      // Mantendo os nomes gerados pelo seu último build ("novo_simulador")
-      var loaderUrl = buildUrl + "/novo_simulador.loader.js";
+      // Apontando corretamente para os arquivos gerados pela build_0824
+      var loaderUrl = buildUrl + "/build_0824.loader.js";
       var config = {
-        dataUrl: buildUrl + "/novo_simulador.data",
-        frameworkUrl: buildUrl + "/novo_simulador.framework.js",
-        codeUrl: buildUrl + "/novo_simulador.wasm",
+        dataUrl: buildUrl + "/build_0824.data",
+        frameworkUrl: buildUrl + "/build_0824.framework.js",
+        codeUrl: buildUrl + "/build_0824.wasm",
         streamingAssetsUrl: "StreamingAssets",
         companyName: "DefaultCompany",
         productName: "simulador_m350",
@@ -163,7 +163,7 @@
 
             let dataStr = `${latestOdom.x},${latestOdom.y},${latestOdom.z},${latestOdom.roll},${latestOdom.pitch},${latestOdom.yaw},${latestMotors.w1},${latestMotors.w2},${latestMotors.w3},${latestMotors.w4}`;
             
-            // O nome do objeto idêntico ao da Hierarchy da Unity ("matrice_v16")
+            // VERIFIQUE SE O OBJETO NA UNITY SE CHAMA EXATAMENTE ASSIM:
             unityInstance.SendMessage("matrice_v16", "ReceiveTelemetry", dataStr);
           });
 
