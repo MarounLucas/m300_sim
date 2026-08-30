@@ -42,6 +42,8 @@ MISSIONS_DIR: Path = DATA_DIR / "offline_missions"
 WAYPOINTS_DIR: Path = DATA_DIR / "waypoints"
 UNITY_BUILD_DIR: Path = PROJECT_ROOT / "scripts" / "unity" / "build"
 ROS_CONFIG_DIR: Path = PROJECT_ROOT / "config"
+FLIGHT_GRAPHS_DIR: Path = DATA_DIR / "flight_graphs"
+FLIGHT_LOGS_DIR: Path = DATA_DIR / "flight_logs"
 
 # Actual ROS 2 installation path (forced for the Docker environment)
 ROS_INSTALL_DIR: Path = Path(
@@ -60,6 +62,8 @@ def initialize_directories() -> None:
     MISSIONS_DIR.mkdir(parents=True, exist_ok=True)
     WAYPOINTS_DIR.mkdir(parents=True, exist_ok=True)
     ROS_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    FLIGHT_GRAPHS_DIR.mkdir(parents=True, exist_ok=True)
+    FLIGHT_LOGS_DIR.mkdir(parents=True, exist_ok=True)
     
     if not ROS_INSTALL_DIR.exists():
         try:
