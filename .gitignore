@@ -22,3 +22,4 @@ config/
 
 # VS Code
 .vscode/
+scripts/pytorch/
