@@ -1,15 +1,22 @@
-import rclpy
-from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
-from rclpy.executors import MultiThreadedExecutor
-from rclpy.node import Node
-from ament_index_python.packages import get_package_share_directory
+"""ROS 2 multi-threaded node for the UAV cascade controller.
+
+This module orchestrates the execution of the cascade controller across 
+different frequencies (50Hz, 250Hz, and 1000Hz) using a MultiThreadedExecutor 
+and Mutual Exclusion Locks to prevent race conditions during state updates.
+"""
 
 import os
 import threading
 from dataclasses import dataclass
 from typing import List, Optional
+
 import numpy as np
+import rclpy
 import yaml
+from ament_index_python.packages import get_package_share_directory
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+from rclpy.executors import MultiThreadedExecutor
+from rclpy.node import Node
 from scipy.spatial.transform import Rotation
 
 from geometry_msgs.msg import TwistStamped, WrenchStamped
@@ -22,6 +29,7 @@ from .control import CascadeController
 
 @dataclass
 class AircraftModel:
+    """Temporary data structure to fulfill CascadeController initialization."""
     mass: float = 0.0
     max_ascent_speed: float = 0.0
     max_descent_speed: float = 0.0
@@ -32,9 +40,26 @@ class AircraftModel:
 
 
 class Controller(Node):
+    """Orchestrates the UAV's multi-frequency cascade control loops.
+
+    Manages ROS 2 subscriptions (telemetry, trajectory, manual commands) and 
+    publishes the calculated control efforts (wrenches) at 1000Hz using 
+    thread-safe callback groups.
+
+    Attributes:
+        controller (CascadeController): The underlying mathematical controller.
+        current_fmd (int): The active flight mode (AUTO or MANUAL).
+        state (np.ndarray): The 12-element current physical state vector.
+    """
+
     def __init__(self) -> None:
+        """Initializes the controller node, parameters, and threaded timers."""
         super().__init__("controller_node")
 
+        self.current_fmd = FlightMode.AUTO
+        self.manual_cmd = [0.0, 0.0, 0.0, 0.0]
+
+        # Declare necessary control limits
         self.declare_parameters(
             namespace='',
             parameters=[
@@ -58,21 +83,19 @@ class Controller(Node):
             max_yaw_rate=float(self.get_parameter('max_yaw_rate').value)
         )
 
-        # Controller
+        # Instantiate the controller with YAML data
         self.controller = CascadeController(ac_model)
 
-        # Init parameters
-        self.current_fmd = FlightMode.AUTO
-        self.manual_cmd = np.zeros(4)
         self.target_pos = np.zeros(3)
         self.target_yaw = 0.0
         self.state = np.zeros(12)
+        
         self.total_thrust = 0.0
         self.target_torque = np.zeros(3)
 
         self.lock = threading.Lock()
 
-        # Callback groups
+        # Thread-safe Callback groups
         self.cb_groups_subs = MutuallyExclusiveCallbackGroup()
         self.cb_group_50hz = MutuallyExclusiveCallbackGroup()
         self.cb_group_250hz = MutuallyExclusiveCallbackGroup()
@@ -90,7 +113,7 @@ class Controller(Node):
         )
 
         self.fmd_sub = self.create_subscription(
-            FlightMode, "/m300_sim/flight_mode", self.flight_mode_callback, 10
+            FlightMode, "/m300_sim/flight_mode", self.fmd_callback, 10
         )
 
         self.cmd_sub = self.create_subscription(
@@ -112,10 +135,16 @@ class Controller(Node):
         self.create_timer(1 / 1000.0, self.loop_1000hz, callback_group=self.cb_group_1000hz)
 
     def start_callback(self, msg: Empty) -> None:
+        """Handles the mission start signal by synchronizing limits.
+
+        Args:
+            msg (Empty): The trigger message.
+        """
         self.get_logger().info("Synchronizing updated control parameters from GUI...")
         self.reload_parameters()
 
     def reload_parameters(self) -> None:
+        """Loads and applies physical control limits from the YAML file dynamically."""
         pkg_share = get_package_share_directory('m300_sim')
         ac_yaml = os.path.join(pkg_share, 'config', 'aircraft_params.yaml')
 
@@ -141,35 +170,42 @@ class Controller(Node):
             self.get_logger().error(f"Failed to load new control limits: {err}")
 
     def loop_50hz(self) -> None:
+        """Executes the slow outer loops (Position and Velocity) at 50Hz."""
         with self.lock:
             if self.current_fmd == FlightMode.AUTO:
-                self.controller.position_control()
+                self.controller._xy_pos_control()
+                self.controller._z_pos_control()
+
             elif self.current_fmd == FlightMode.MANUAL:
                 x_cmd = self.manual_cmd[0]
                 y_cmd = self.manual_cmd[1]
                 z_cmd = self.manual_cmd[2]
                 yaw_cmd = self.manual_cmd[3]
 
-                self.controller.des_velocity[0] = x_cmd * 1.5
-                self.controller.des_velocity[1] = y_cmd * 1.5
-                self.controller.des_velocity[2] = z_cmd * 1.5
+                self.controller.des_velocity[0] = x_cmd * 5.0
+                self.controller.des_velocity[1] = y_cmd * 5.0
+                self.controller.des_velocity[2] = z_cmd * 4.5
 
                 yaw_rate = float(self.get_parameter('max_yaw_rate').value)
                 dt = 1.0 / 50.0
 
                 self.controller.des_angles[2] += (yaw_cmd * yaw_rate) * dt
 
-            self.controller.velocity_control(dt=1.0 / 50.0)
+            self.controller._xy_vel_control(dt=1.0 / 50.0)
+            self.controller._z_vel_control(dt=1.0 / 50.0)
 
-            self.total_thrust = self.controller.accel_to_attitude()
+            # Note: _accel_to_attitude returns the required thrust (u_total)
+            self.total_thrust = self.controller._accel_to_attitude()
 
     def loop_250hz(self) -> None:
+        """Executes the intermediate attitude control loop at 250Hz."""
         with self.lock:
-            self.controller.angle_control()
+            self.controller._angle_control()
 
     def loop_1000hz(self) -> None:
+        """Executes the fast inner angular rate loop and publishes efforts at 1000Hz."""
         with self.lock:
-            self.target_torque = self.controller.angular_rate_control(dt=1.0 / 1000.0)
+            self.target_torque = self.controller._angular_rate_control(dt=1.0 / 1000.0)
 
             ctrl_msg = WrenchStamped()
             ctrl_msg.header.stamp = self.get_clock().now().to_msg()
@@ -183,6 +219,11 @@ class Controller(Node):
             self.ctrl_pub.publish(ctrl_msg)
 
     def state_callback(self, msg: Odometry) -> None:
+        """Parses telemetry to update the controller's current knowledge of the drone.
+
+        Args:
+            msg (Odometry): The current state of the UAV.
+        """
         px = msg.pose.pose.position.x
         py = msg.pose.pose.position.y
         pz = msg.pose.pose.position.z
@@ -211,6 +252,11 @@ class Controller(Node):
             self.controller.update_state(self.state)
 
     def trajectory_callback(self, msg: Odometry) -> None:
+        """Parses the desired trajectory to update the controller's targets.
+
+        Args:
+            msg (Odometry): The desired state provided by the trajectory planner.
+        """
         self.target_pos[0] = msg.pose.pose.position.x
         self.target_pos[1] = msg.pose.pose.position.y
         self.target_pos[2] = msg.pose.pose.position.z
@@ -223,22 +269,40 @@ class Controller(Node):
         rot = Rotation.from_quat([quat_x, quat_y, quat_z, quat_w])
         _, _, self.target_yaw = rot.as_euler('xyz')
 
+        vel_x = msg.twist.twist.linear.x
+        vel_y = msg.twist.twist.linear.y
+        vel_z = msg.twist.twist.linear.z
+
+        vel = np.array([vel_x, vel_y, vel_z])
         waypoint = np.array([
             self.target_pos[0], self.target_pos[1], self.target_pos[2], self.target_yaw
         ])
 
         with self.lock:
             if self.current_fmd == FlightMode.AUTO:
-                self.controller.desired_state(waypoint)
+                self.controller.desired_state(waypoint, vel)
 
     def cmd_callback(self, msg: TwistStamped) -> None:
+        """Parses manual velocity commands from the joystick mapper.
+
+        Args:
+            msg (TwistStamped): The manual command twist.
+        """
         u_vel = msg.twist.linear.x
         v_vel = msg.twist.linear.y
         w_vel = msg.twist.linear.z
         yaw_cmd = msg.twist.angular.z
-        self.manual_cmd[0:4] = u_vel, v_vel, w_vel, yaw_cmd
 
-    def flight_mode_callback(self, msg: FlightMode) -> None:
+        self.manual_cmd[0:4] = [u_vel, v_vel, w_vel, yaw_cmd]
+
+    def fmd_callback(self, msg: FlightMode) -> None:
+        """Handles transitions between automatic and manual flight modes.
+
+        Resets integral memories to prevent integral windup jumps during transition.
+
+        Args:
+            msg (FlightMode): The incoming flight mode update.
+        """
         if self.current_fmd != msg.mode:
             with self.lock:
                 self.controller.reset_integrals()
@@ -250,11 +314,17 @@ class Controller(Node):
             self.current_fmd = msg.mode
 
 
+# =========================================================================
+# MAIN FUNCTION
+# =========================================================================
 def main(args: Optional[List[str]] = None) -> None:
+    """Initializes and spins the controller node within a multithreaded executor."""
     rclpy.init(args=args)
     ctrl_node = Controller()
+
     executor = MultiThreadedExecutor()
     executor.add_node(ctrl_node)
+    
     try:
         executor.spin()
     except KeyboardInterrupt:
