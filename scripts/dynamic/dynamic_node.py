@@ -16,7 +16,7 @@ from ament_index_python.packages import get_package_share_directory
 from rclpy.node import Node
 from scipy.spatial.transform import Rotation
 
-from geometry_msgs.msg import WrenchStamped
+from geometry_msgs.msg import WrenchStamped, AccelStamped
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Empty
@@ -145,12 +145,13 @@ class DynamicNode(Node):
             Odometry, '/m300_sim/telemetry_topic', 10
         )
         
-        # NOVO: Publicador Profissional de Atuadores
         self.motor_pub = self.create_publisher(
             JointState, '/m300_sim/joint_states', 10
+        )        
+
+        self.accel_pub = self.create_publisher(
+            AccelStamped, '/m300_sim/acceleration_topic', 10
         )
-        
-        self.get_logger().info('Telemetry Publisher Started')
 
         self.ctrl_sub = self.create_subscription(
             WrenchStamped, '/m300_sim/control_topic', self.cmd_callback, 10
@@ -160,9 +161,7 @@ class DynamicNode(Node):
             Empty, '/m300_sim/start_mission', self.start_callback, 10
         )
 
-        # Read YAML configuration on initialization
         self.reload_parameters()
-
         self.create_timer(self.dt, self.physics_loop)
 
     def start_callback(self, msg: Empty) -> None:
@@ -171,7 +170,6 @@ class DynamicNode(Node):
         Args:
             msg (Empty): The empty trigger message.
         """
-        self.get_logger().info("Synchronizing aerodynamic and wind parameters from GUI...")
         self.reload_parameters()
 
     def reload_parameters(self) -> None:
@@ -272,6 +270,8 @@ class DynamicNode(Node):
         dx = six_dof_model(self.state, self.ac_params, self.curr_wind, w_cmds)
         self.state = forward_euler(self.state, dx, self.dt)
 
+        self._publish_acceleration(dx)
+
     def _publish_motor_speeds(self, w_cmds: np.ndarray) -> None:
         """Publishes the current rotation speed of all 4 propellers using JointState."""
         msg = JointState()
@@ -315,14 +315,30 @@ class DynamicNode(Node):
 
         self.dyn_pub.publish(msg)
 
+    def _publish_acceleration(self, dx: np.ndarray):
+        '''Constructs and publishes the analytical accelerations'''
+
+        msg = AccelStamped()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = 'base_link'
+
+        msg.accel.linear.x = float(dx[0])
+        msg.accel.linear.y = float(dx[1])
+        msg.accel.linear.z = float(dx[2])
+
+        msg.accel.angular.x = float(dx[3])
+        msg.accel.angular.y = float(dx[4])
+        msg.accel.angular.z = float(dx[5])
+
+        self.accel_pub.publish(msg)
+
+
     def _log_telemetry(self) -> None:
         """Logs a human-readable telemetry summary to the console at 10Hz."""
         if self.tick_count % 100 == 0:
-            # Extract Euler angles for human-readable visualization
             rot = Rotation.from_euler(
                 "xyz", [self.state[6], self.state[7], self.state[8]]
             )
-            # In degrees for the log!
             roll, pitch, yaw = rot.as_euler('xyz', degrees=True) 
 
             self.get_logger().info(

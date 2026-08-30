@@ -21,6 +21,7 @@ from scipy.spatial.transform import Rotation
 
 from nav_msgs.msg import Odometry
 from std_msgs.msg import Empty
+from geometry_msgs.msg import WrenchStamped, AccelStamped
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
@@ -70,6 +71,11 @@ class GuiBridgeNode(Node):
         super().__init__("gui_bridge_node")
         self.signals = signals
         self.last_emit_time = 0.0
+        self.last_control = {'fz': 0.0, 'tx': 0.0, 'ty': 0.0, 'tz': 0.0}
+        self.last_accel = {
+            'ax': 0.0, 'ay': 0.0, 'az': 0.0, 
+            'alpha_p': 0.0, 'alpha_q': 0.0, 'alpha_r': 0.0
+}
         
         # 30 FPS throttle to prevent GUI freezing
         self.emit_rate = 1.0 / 30.0  
@@ -77,6 +83,14 @@ class GuiBridgeNode(Node):
         # Subscribe to drone telemetry
         self.sub_telemetry = self.create_subscription(
             Odometry, "/m300_sim/telemetry_topic", self.telemetry_callback, 10
+        )
+
+        self.ctrl_sub = self.create_subscription(
+            WrenchStamped, '/m300_sim/control_topic', self.ctrl_callback, 10
+        )
+
+        self.accel_sub = self.create_subscription(
+            AccelStamped, '/m300_sim/acceleration_topic', self.accel_callback, 10
         )
 
         # Create trigger publisher
@@ -128,9 +142,32 @@ class GuiBridgeNode(Node):
             "roll": roll, "pitch": pitch, "yaw": yaw,
             "u": u, "v": v, "w": w,
             "p": p, "q": q, "r": r,
+            "ax": self.last_accel['ax'],
+            "ay": self.last_accel['ay'],
+            "az": self.last_accel['az'],
+            "alpha_p": self.last_accel['alpha_p'],
+            "alpha_q": self.last_accel['alpha_q'],
+            "alpha_r": self.last_accel['alpha_r'],
+            "fz": self.last_control['fz'],
+            "tx": self.last_control['tx'],
+            "ty": self.last_control['ty'],
+            "tz": self.last_control['tz']
         }
         self.signals.telemetry_updated.emit(data)
 
+    def ctrl_callback(self, msg: WrenchStamped):
+        self.last_control['fz'] = msg.wrench.force.z
+        self.last_control['tx'] = msg.wrench.torque.x
+        self.last_control['ty'] = msg.wrench.torque.y
+        self.last_control['tz'] = msg.wrench.torque.z
+
+    def accel_callback(self, msg: AccelStamped):
+        self.last_accel['ax'] = msg.accel.linear.x
+        self.last_accel['ay'] = msg.accel.linear.y
+        self.last_accel['az'] = msg.accel.linear.z
+        self.last_accel['alpha_p'] = msg.accel.angular.x
+        self.last_accel['alpha_q'] = msg.accel.angular.y
+        self.last_accel['alpha_r'] = msg.accel.angular.z
 
 # ==============================================================================
 # HELPER FUNCTIONS

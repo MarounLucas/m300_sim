@@ -5,6 +5,7 @@ UAV states (position, attitude, velocities) in real-time. It supports data
 history buffering, CSV exporting, and off-screen high-resolution rendering.
 """
 
+import math
 import sys
 import threading
 import http.server
@@ -68,12 +69,10 @@ class TelemetryHelpDialog(QDialog):
         layout.setContentsMargins(0, 0, 0, 0)
         browser = QTextBrowser()
         
-        # 1. DESCOBRIR O CAMINHO ABSOLUTO DO GIF
         current_dir = Path(__file__).resolve().parent
         gif_path = current_dir.parent / "assets" / "img" / "tutorial_telemetry.gif"
         gif_uri = gif_path.as_uri()
 
-        # 2. INSERIR NA F-STRING DO HTML
         html_content = f"""
         <html>
         <head>
@@ -191,21 +190,21 @@ class ExportGraphDialog(QDialog):
             ("Current Visible Screen (WYSIWYG)", []),
             ("Full Dashboard Overview (12 Plots)", ['x', 'y', 'z', 'roll', 'pitch', 'yaw', 'u', 'v', 'w', 'p', 'q', 'r']),
             ("Position - All (North, East, Alt)", ['x', 'y', 'z']),
-            ("Position - Specific: North", ['x']),
-            ("Position - Specific: East", ['y']),
-            ("Position - Specific: Altitude", ['z']),
+            ("Position - North", ['x']),
+            ("Position - East", ['y']),
+            ("Position - Altitude", ['z']),
             ("Attitude - All (Roll, Pitch, Yaw)", ['roll', 'pitch', 'yaw']),
-            ("Attitude - Specific: Roll", ['roll']),
-            ("Attitude - Specific: Pitch", ['pitch']),
-            ("Attitude - Specific: Yaw", ['yaw']),
+            ("Attitude - Roll", ['roll']),
+            ("Attitude - Pitch", ['pitch']),
+            ("Attitude - Yaw", ['yaw']),
             ("Linear Velocity - All (u, v, w)", ['u', 'v', 'w']),
-            ("Linear Velocity - Specific: u", ['u']),
-            ("Linear Velocity - Specific: v", ['v']),
-            ("Linear Velocity - Specific: w", ['w']),
+            ("Linear Velocity - u", ['u']),
+            ("Linear Velocity - v", ['v']),
+            ("Linear Velocity - w", ['w']),
             ("Angular Rate - All (p, q, r)", ['p', 'q', 'r']),
-            ("Angular Rate - Specific: p", ['p']),
-            ("Angular Rate - Specific: q", ['q']),
-            ("Angular Rate - Specific: r", ['r'])
+            ("Angular Rate - p", ['p']),
+            ("Angular Rate - q", ['q']),
+            ("Angular Rate - r", ['r'])
         ]
         for text, _ in self.options:
             self.combo.addItem(text)
@@ -238,6 +237,7 @@ class TabTelemetry(QWidget):
         self.window_size = 300 
         self.online_start_t: Optional[float] = None
         self.webgl_port = 8000
+        self.packet_counter = 0
         
         self._init_rolling_buffer()
         self.flight_history = self._create_empty_history()
@@ -271,14 +271,26 @@ class TabTelemetry(QWidget):
     def _init_rolling_buffer(self) -> None:
         t_array = np.linspace(-10.0, 0.0, self.window_size)
         self.online_data: Dict[str, np.ndarray] = {
-            't': t_array.copy(), 'x': np.zeros(self.window_size), 'y': np.zeros(self.window_size), 'z': np.zeros(self.window_size),
+            't': t_array.copy(), 
+            'x': np.zeros(self.window_size), 'y': np.zeros(self.window_size), 'z': np.zeros(self.window_size),
             'roll': np.zeros(self.window_size), 'pitch': np.zeros(self.window_size), 'yaw': np.zeros(self.window_size),
             'u': np.zeros(self.window_size), 'v': np.zeros(self.window_size), 'w': np.zeros(self.window_size),
-            'p': np.zeros(self.window_size), 'q': np.zeros(self.window_size), 'r': np.zeros(self.window_size)
+            'p': np.zeros(self.window_size), 'q': np.zeros(self.window_size), 'r': np.zeros(self.window_size),
+            'ax': np.zeros(self.window_size), 'ay': np.zeros(self.window_size), 'az': np.zeros(self.window_size),
+            'alpha_p': np.zeros(self.window_size), 'alpha_q': np.zeros(self.window_size), 'alpha_r': np.zeros(self.window_size),
+            'fz': np.zeros(self.window_size), 'tx': np.zeros(self.window_size), 'ty': np.zeros(self.window_size), 'tz': np.zeros(self.window_size)
         }
 
     def _create_empty_history(self) -> Dict[str, List[float]]:
-        return {'t': [], 'x': [], 'y': [], 'z': [], 'roll': [], 'pitch': [], 'yaw': [], 'u': [], 'v': [], 'w': [], 'p': [], 'q': [], 'r': []}
+        return {
+            't': [], 'x': [], 'y': [], 'z': [], 
+            'roll': [], 'pitch': [], 'yaw': [], 
+            'u': [], 'v': [], 'w': [], 
+            'p': [], 'q': [], 'r': [],
+            'ax': [], 'ay': [], 'az': [], 
+            'alpha_p': [], 'alpha_q': [], 'alpha_r': [],
+            'fz': [], 'tx': [], 'ty': [], 'tz': []
+        }
 
     def _setup_dark_theme(self) -> None:
         palette = QPalette()
@@ -327,11 +339,11 @@ class TabTelemetry(QWidget):
         self.btn_clear.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload))
         self.btn_clear.clicked.connect(self.clear_history)
         
-        self.btn_export_img = QPushButton(" Snapshot Graph")
+        self.btn_export_img = QPushButton(" Export Graph")
         self.btn_export_img.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton))
         self.btn_export_img.clicked.connect(self.export_graph_image)
         
-        self.btn_export_csv = QPushButton(" Export Flight CSV")
+        self.btn_export_csv = QPushButton(" Export Flight Log")
         self.btn_export_csv.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DriveFDIcon))
         self.btn_export_csv.clicked.connect(self.export_csv)
         
@@ -401,7 +413,11 @@ class TabTelemetry(QWidget):
         self.radio_group = QButtonGroup(self)
         self.radios: List[QRadioButton] = []
         
-        plot_options = ["3D Simulation", "Position", "Attitude", "Linear Velocity", "Angular Rate"]
+        plot_options = [
+            "3D Simulation", "Position", "Attitude", 
+            "Linear Velocity", "Angular Rate",
+            "Linear Accel", "Angular Accel", "Control Efforts"
+        ]
         
         for i, text in enumerate(plot_options):
             rb = QRadioButton(text)
@@ -460,13 +476,26 @@ class TabTelemetry(QWidget):
         return lbl_val
 
     def receive_online_data(self, data: Dict[str, float]) -> None:
+        self.packet_counter += 1
+        if self.packet_counter % 4 != 0:
+            return
+
         if self.online_start_t is None:
             self.online_start_t = data['t']
             self.lbl_live_status.setText("● TELEMETRY LIVE")
-            self.lbl_live_status.setStyleSheet("color: #ff3333; font-weight: bold; font-size: 14px;")
+            self.lbl_live_status.setStyleSheet("color: #00ff00; font-weight: bold; font-size: 14px;") 
             
         rel_time = data['t'] - self.online_start_t
         self.lbl_time.setText(f"{rel_time:.2f} s")
+        
+        roll_deg = data['roll'] * 57.2958
+        pitch_deg = data['pitch'] * 57.2958
+        v_norm = math.hypot(data['u'], data['v']) 
+
+        if abs(roll_deg) > 60.0 or abs(pitch_deg) > 60.0 or v_norm > 30.0:
+            self.lbl_live_status.setText("● CRASH")
+            self.lbl_live_status.setStyleSheet("color: #ff0000; font-weight: bold; font-size: 16px; background-color: #550000; padding: 2px;")
+            self.lbl_time.setStyleSheet("color: #ff0000;") 
         
         self.hud_n.setText(f"{data['x']:.2f}")
         self.hud_e.setText(f"{data['y']:.2f}")
@@ -494,6 +523,16 @@ class TabTelemetry(QWidget):
         self.flight_history['p'].append(data['p'])
         self.flight_history['q'].append(data['q'])
         self.flight_history['r'].append(data['r'])
+        self.flight_history['ax'].append(data.get('ax', 0.0))
+        self.flight_history['ay'].append(data.get('ay', 0.0))
+        self.flight_history['az'].append(data.get('az', 0.0))
+        self.flight_history['alpha_p'].append(data.get('alpha_p', 0.0))
+        self.flight_history['alpha_q'].append(data.get('alpha_q', 0.0))
+        self.flight_history['alpha_r'].append(data.get('alpha_r', 0.0))
+        self.flight_history['fz'].append(data.get('fz', 0.0))
+        self.flight_history['tx'].append(data.get('tx', 0.0))
+        self.flight_history['ty'].append(data.get('ty', 0.0))
+        self.flight_history['tz'].append(data.get('tz', 0.0))
 
         for key in self.online_data.keys():
             self.online_data[key] = np.roll(self.online_data[key], -1)
@@ -511,7 +550,17 @@ class TabTelemetry(QWidget):
         self.online_data['p'][-1] = data['p']
         self.online_data['q'][-1] = data['q']
         self.online_data['r'][-1] = data['r']
-        
+        self.online_data['ax'][-1] = data.get('ax', 0.0)
+        self.online_data['ay'][-1] = data.get('ay', 0.0)
+        self.online_data['az'][-1] = data.get('az', 0.0)
+        self.online_data['alpha_p'][-1] = data.get('alpha_p', 0.0)
+        self.online_data['alpha_q'][-1] = data.get('alpha_q', 0.0)
+        self.online_data['alpha_r'][-1] = data.get('alpha_r', 0.0)
+        self.online_data['fz'][-1] = data.get('fz', 0.0)
+        self.online_data['tx'][-1] = data.get('tx', 0.0)
+        self.online_data['ty'][-1] = data.get('ty', 0.0)
+        self.online_data['tz'][-1] = data.get('tz', 0.0)
+
         if self.graph_items:
             is_auto_scroll = self.chk_autoscroll.isChecked()
             for curve, _, data_key, _ in self.graph_items:
@@ -568,6 +617,30 @@ class TabTelemetry(QWidget):
                 p = _create_plot(0, i, labels[i], labels[i]); curve = p.plot(pen=pens[i])
                 self.graph_items.append((curve, p, keys[i], labels[i]))
 
+        elif view_idx == 5: 
+            keys = ['ax', 'ay', 'az']; labels = ['ax [m/s²]', 'ay [m/s²]', 'az [m/s²]']
+            for i in range(3):
+                p = _create_plot(0, i, labels[i], labels[i]); curve = p.plot(pen=pens[i])
+                self.graph_items.append((curve, p, keys[i], labels[i]))
+
+        elif view_idx == 6: 
+            keys = ['alpha_p', 'alpha_q', 'alpha_r']; labels = ['αp [rad/s²]', 'αq [rad/s²]', 'αr [rad/s²]']
+            for i in range(3):
+                p = _create_plot(0, i, labels[i], labels[i]); curve = p.plot(pen=pens[i])
+                self.graph_items.append((curve, p, keys[i], labels[i]))
+
+        elif view_idx == 7: 
+            keys = ['fz', 'tx', 'ty', 'tz']
+            labels = ['Thrust Fz [N]', 'Torque Tx [N.m]', 'Torque Ty [N.m]', 'Torque Tz [N.m]']
+            ctrl_pens = [pg.mkPen(color='#f44336', width=2), pg.mkPen(color='#4caf50', width=2), 
+                         pg.mkPen(color='#00d4ff', width=2), pg.mkPen(color='#ffeb3b', width=2)]
+            for i in range(4):
+                r = i // 2 
+                c = i % 2   
+                p = _create_plot(r, c, labels[i], labels[i])
+                curve = p.plot(pen=ctrl_pens[i])
+                self.graph_items.append((curve, p, keys[i], labels[i]))
+
         if not self.chk_autoscroll.isChecked() and self.flight_history['t']:
             for curve, _, data_key, _ in self.graph_items:
                 curve.setData(self.flight_history['t'], self.flight_history[data_key])
@@ -587,8 +660,38 @@ class TabTelemetry(QWidget):
             msg = CustomMessageBox("Info", "No data to export.", "The flight history is currently empty.", msg_type="info", parent=self)
             msg.exec()
             return
+
+        aircraft_name = "default_aircraft"
+        mission_name = "custom_mission"
+        
+        # BUSCA INFALÍVEL PELA ABA DE AERONAVE (MESMO QUE TENHA NOME DIFERENTE NO MAIN)
+        ac_tab = getattr(self.main_window, 'tab_aircraft', None)
+        if not ac_tab:
+            for widget in self.main_window.findChildren(QWidget):
+                if type(widget).__name__ == "TabAircraft":
+                    ac_tab = widget
+                    break
+                    
+        if ac_tab and hasattr(ac_tab, 'line_aircraft_name'):
+            ac_text = ac_tab.line_aircraft_name.text().strip()
+            if ac_text:
+                aircraft_name = ac_text.replace(" ", "_").lower()
+                
+        # BUSCA INFALÍVEL PELA ABA DE MISSÃO (MESMO QUE TENHA NOME DIFERENTE NO MAIN)
+        ms_tab = getattr(self.main_window, 'tab_mission', None)
+        if not ms_tab:
+            for widget in self.main_window.findChildren(QWidget):
+                if type(widget).__name__ == "TabMission":
+                    ms_tab = widget
+                    break
+                    
+        if ms_tab and hasattr(ms_tab, 'loaded_mission_name'):
+            mission_name = ms_tab.loaded_mission_name.replace(" ", "_").lower()
             
-        file_path, _ = QFileDialog.getSaveFileName(self, "Export Flight Log (CSV)", "", "CSV Files (*.csv)")
+        suggested_filename = f"{aircraft_name}_{mission_name}.csv"
+        default_path = str(paths.FLIGHT_LOGS_DIR / suggested_filename)
+        
+        file_path, _ = QFileDialog.getSaveFileName(self, "Export Flight Log (CSV)", default_path, "CSV Files (*.csv)")
         if file_path:
             if not file_path.endswith('.csv'): file_path += '.csv'
             try:
@@ -596,9 +699,21 @@ class TabTelemetry(QWidget):
                     self.flight_history['t'], self.flight_history['x'], self.flight_history['y'], self.flight_history['z'],
                     self.flight_history['roll'], self.flight_history['pitch'], self.flight_history['yaw'],
                     self.flight_history['u'], self.flight_history['v'], self.flight_history['w'],
-                    self.flight_history['p'], self.flight_history['q'], self.flight_history['r']
+                    self.flight_history['p'], self.flight_history['q'], self.flight_history['r'],
+                    self.flight_history['ax'], self.flight_history['ay'], self.flight_history['az'],
+                    self.flight_history['alpha_p'], self.flight_history['alpha_q'], self.flight_history['alpha_r'],
+                    self.flight_history['fz'], self.flight_history['tx'], self.flight_history['ty'], self.flight_history['tz']
                 ))
-                header = ["Time_s", "Pos_N_m", "Pos_E_m", "Pos_Alt_m", "Roll_deg", "Pitch_deg", "Yaw_deg", "Vel_u_ms", "Vel_v_ms", "Vel_w_ms", "Rate_p_rads", "Rate_q_rads", "Rate_r_rads"]
+                
+                header = [
+                    "Time_s", "Pos_N_m", "Pos_E_m", "Pos_Alt_m", 
+                    "Roll_deg", "Pitch_deg", "Yaw_deg", 
+                    "Vel_u_ms", "Vel_v_ms", "Vel_w_ms", 
+                    "Rate_p_rads", "Rate_q_rads", "Rate_r_rads",
+                    "Accel_x_ms2", "Accel_y_ms2", "Accel_z_ms2",
+                    "Alpha_p_rads2", "Alpha_q_rads2", "Alpha_r_rads2",
+                    "Thrust_Fz_N", "Torque_Tx_Nm", "Torque_Ty_Nm", "Torque_Tz_Nm"
+                ]
                 np.savetxt(file_path, data_matrix, delimiter=",", header=",".join(header), comments="", fmt='%.6f')
                 msg = CustomMessageBox("Success", "Flight Log Exported!", f"Data saved to:\n{file_path}", msg_type="success", parent=self)
                 msg.exec()
@@ -617,7 +732,9 @@ class TabTelemetry(QWidget):
             idx = dialog.selected_index
             _, keys = dialog.options[idx]
             
-            file_path, _ = QFileDialog.getSaveFileName(self, "Save Graph Snapshot", "", "PNG Images (*.png)")
+            default_path = str(paths.FLIGHT_GRAPHS_DIR / "flight_graph.png")
+            
+            file_path, _ = QFileDialog.getSaveFileName(self, "Save Graph Snapshot", default_path, "PNG Images (*.png)")
             if file_path:
                 if not file_path.endswith('.png'): file_path += '.png'
                 try:

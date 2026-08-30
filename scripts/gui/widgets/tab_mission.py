@@ -228,6 +228,9 @@ class TabMission(QWidget):
         self.main_window = main_window_ref
         self._last_selected_row: int = -1
 
+        # Tracks the main mission file name (Default is 'custom_mission')
+        self.loaded_mission_name = "custom_mission"
+
         self._setup_dark_theme()
         self._build_ui()
         self._setup_shortcuts()
@@ -839,6 +842,9 @@ class TabMission(QWidget):
             parent=self,
         )
         if msg.exec() == QMessageBox.StandardButton.Yes:
+            
+            self.loaded_mission_name = "custom_mission"
+            
             self.table_waypoints.blockSignals(True)
             self.table_waypoints.setRowCount(0)
             
@@ -874,7 +880,9 @@ class TabMission(QWidget):
         try:
             with open(file_path, "w", encoding="utf-8") as file:
                 json.dump(mission_data, file, indent=4)
-                
+            
+            self.loaded_mission_name = os.path.splitext(os.path.basename(file_path))[0]
+            
             self.export_to_ros_yaml()
             
             msg = CustomMessageBox(
@@ -952,6 +960,10 @@ class TabMission(QWidget):
             return
             
         try:
+            # ---> SALVA O NOME IMEDIATAMENTE (Imune a qualquer erro no arquivo ou UI) <---
+            filename = os.path.basename(file_path)
+            self.loaded_mission_name = os.path.splitext(filename)[0]
+            
             with open(file_path, "r", encoding="utf-8") as file:
                 data = json.load(file)
 
@@ -999,7 +1011,6 @@ class TabMission(QWidget):
             self.lbl_sim_status.setStyleSheet("color: #aaaaaa; font-size: 13px;")
             self.update_plot()
 
-            filename = os.path.basename(file_path)
             msg = CustomMessageBox(
                 "Success",
                 "Mission loaded!",
@@ -1284,6 +1295,10 @@ class TabMission(QWidget):
 
         self.table_waypoints.blockSignals(True)
         try:
+            # ---> SALVA O NOME IMEDIATAMENTE (Cobre o cenário do botão de coordenadas) <---
+            filename = os.path.basename(file_path)
+            self.loaded_mission_name = os.path.splitext(filename)[0]
+
             if file_path.endswith(".csv"):
                 with open(file_path, mode="r", encoding="utf-8") as file:
                     reader = csv.DictReader(file)
@@ -1302,6 +1317,7 @@ class TabMission(QWidget):
                         y = item.get("Y", item.get("lon", item.get("y", 0.0)))
                         z = item.get("Z", item.get("alt", item.get("z", 0.0)))
                         self._add_row_to_table(float(x), float(y), float(z))
+                        
         except Exception as err:
             msg = CustomMessageBox(
                 "Read Error", "Could not read the file.", str(err), 
