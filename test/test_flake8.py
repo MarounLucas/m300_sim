@@ -12,14 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""PEP 8 code style compliance test for m300_sim."""
+
 from ament_flake8.main import main_with_errors
 import pytest
 
 
 @pytest.mark.flake8
 @pytest.mark.linter
-def test_flake8():
+def test_flake8() -> None:
+    """Verify that all package source files conform to PEP 8 style rules."""
     rc, errors = main_with_errors(argv=[])
-    assert rc == 0, \
-        'Found %d code style errors / warnings:\n' % len(errors) + \
-        '\n'.join(errors)
+    assert rc == 0, (
+        'Found %d code style errors / warnings:\n' % len(errors)
+        + '\n'.join(errors)
+    )

@@ -10,13 +10,21 @@ __pycache__/
 env/
 venv/
 
-# ROS 2 / Colcon artifacts (in case of accidental local builds)
-build/]
+# ROS 2 / Colcon artifacts
+build/
 install/
 log/
 
 # Simulation Data
 bags/
+data/
+config/
 
-# VS Code
+# VS Code & AI Agents
 .vscode/
+.agents/
+AGENTS.md
+.pre-commit-config.yaml
+ruff.toml
+docs/
+scripts/pytorch/
