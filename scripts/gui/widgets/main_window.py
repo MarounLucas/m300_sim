@@ -1,8 +1,4 @@
-"""Main window module for the M350 Simulator GUI.
-
-This module defines the primary application window, assembling various
-modular tabs (Aircraft, Mission, Telemetry) into a unified interface.
-"""
+"""Main window module for the M350 Simulator GUI."""
 
 from PySide6.QtWidgets import QMainWindow, QTabWidget, QVBoxLayout, QWidget
 
@@ -12,22 +8,19 @@ from .tab_telemetry import TabTelemetry
 
 
 class MainWindow(QMainWindow):
-    """The main application window for the simulator.
-
-    Assembles the graphical user interface by instantiating and arranging
-    the modular tab widgets within a central layout.
+    """Assemble the aircraft, mission, and telemetry tabs in the main window.
 
     Attributes:
-        tabs (QTabWidget): The main tab container holding all module panels.
-        tab_aircraft (TabAircraft): Tab for configuring aircraft parameters.
-        tab_inputs (TabMission): Tab for configuring mission parameters.
-        tab_outputs (TabTelemetry): Tab for viewing telemetry and results.
+        tabs: Tab container holding all simulator panels.
+        tab_aircraft: Tab for configuring aircraft physical parameters.
+        tab_inputs: Tab for configuring mission waypoints and wind profiles.
+        tab_outputs: Tab for viewing real-time telemetry and flight logs.
     """
 
     def __init__(self) -> None:
-        """Initializes the main window, layout, and modular tabs."""
+        """Initialize the main window layout and modular tabs."""
         super().__init__()
-        self.setWindowTitle("M350 Simulator")
+        self.setWindowTitle('M350 Simulator')
         self.resize(1920, 1080)
 
         central_widget = QWidget()
@@ -40,8 +33,8 @@ class MainWindow(QMainWindow):
         self.tab_inputs = TabMission(self)
         self.tab_outputs = TabTelemetry(self)
 
-        self.tabs.addTab(self.tab_aircraft, "Aircraft Parameters")
-        self.tabs.addTab(self.tab_inputs, "Mission Configuration")
-        self.tabs.addTab(self.tab_outputs, "Results and Telemetry")
+        self.tabs.addTab(self.tab_aircraft, 'Aircraft Parameters')
+        self.tabs.addTab(self.tab_inputs, 'Mission Configuration')
+        self.tabs.addTab(self.tab_outputs, 'Results and Telemetry')
 
         main_layout.addWidget(self.tabs)

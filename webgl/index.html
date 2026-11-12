@@ -148,8 +148,14 @@
           }
 
           var odomListener = new ROSLIB.Topic({
-            ros : ros, name : '/m300_sim/telemetry_topic', messageType : 'nav_msgs/Odometry'
+            ros : ros,
+            name : '/m300_sim/telemetry_topic',
+            messageType : 'nav_msgs/Odometry',
+            throttle_rate : 33,
+            queue_length : 1
           });
+
+          let hasNewTelemetry = false;
 
           odomListener.subscribe(function(message) {
             latestOdom.x = message.pose.pose.position.x;
@@ -160,15 +166,15 @@
             latestOdom.roll = euler.roll;
             latestOdom.pitch = euler.pitch;
             latestOdom.yaw = euler.yaw;
-
-            let dataStr = `${latestOdom.x},${latestOdom.y},${latestOdom.z},${latestOdom.roll},${latestOdom.pitch},${latestOdom.yaw},${latestMotors.w1},${latestMotors.w2},${latestMotors.w3},${latestMotors.w4}`;
-            
-            // VERIFIQUE SE O OBJETO NA UNITY SE CHAMA EXATAMENTE ASSIM:
-            unityInstance.SendMessage("matrice_v16", "ReceiveTelemetry", dataStr);
+            hasNewTelemetry = true;
           });
 
           var motorListener = new ROSLIB.Topic({
-            ros : ros, name : '/m300_sim/joint_states', messageType : 'sensor_msgs/JointState'
+            ros : ros,
+            name : '/m300_sim/joint_states',
+            messageType : 'sensor_msgs/JointState',
+            throttle_rate : 33,
+            queue_length : 1
           });
 
           motorListener.subscribe(function(message) {
@@ -179,6 +185,16 @@
                 latestMotors.w4 = message.velocity[3];
             }
           });
+
+          function pushTelemetryToUnity() {
+            if (hasNewTelemetry) {
+              hasNewTelemetry = false;
+              let dataStr = `${latestOdom.x},${latestOdom.y},${latestOdom.z},${latestOdom.roll},${latestOdom.pitch},${latestOdom.yaw},${latestMotors.w1},${latestMotors.w2},${latestMotors.w3},${latestMotors.w4}`;
+              unityInstance.SendMessage("matrice_v16", "ReceiveTelemetry", dataStr);
+            }
+            requestAnimationFrame(pushTelemetryToUnity);
+          }
+          requestAnimationFrame(pushTelemetryToUnity);
 
         }).catch((message) => {
           alert(message);

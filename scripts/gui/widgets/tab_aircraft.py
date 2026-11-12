@@ -1,17 +1,18 @@
 """Aircraft configuration UI module for the UAV simulator.
 
-Provides the graphical interface for setting physical, aerodynamic, and 
-propulsion parameters of the UAV, saving them as JSON profiles, and 
-exporting them to ROS 2 YAML configuration files.
+Provide the graphical interface for configuring physical, aerodynamic, and
+propulsion parameters of the UAV, saving them as JSON profiles, and exporting
+them to ROS 2 YAML configuration files.
 """
+
+from __future__ import annotations
 
 import json
 import os
-import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+import sys
+from typing import Any
 
-import yaml
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
@@ -31,42 +32,37 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+import yaml
 
-# =========================================================================
-# PATH CONFIGURATION
-# =========================================================================
-# 1. Get the current script directory (src/gui/widgets)
 current_dir = Path(__file__).resolve().parent
-
-# 2. Go up two levels to reach the 'src' folder
 src_dir = current_dir.parent.parent
 
-# 3. Add 'src' to sys.path so Python can locate paths.py
 if str(src_dir) not in sys.path:
     sys.path.append(str(src_dir))
 
-from paths import AIRCRAFT_MODELS_DIR, ROS_CONFIG_DIR, ROS_INSTALL_DIR
+from paths import (  # noqa: E402
+    AIRCRAFT_MODELS_DIR,
+    ROS_CONFIG_DIR,
+    ROS_INSTALL_DIR,
+)
 
 
-# =========================================================================
-# UTILITY CLASSES (UI FACTORY AND ALERTS)
-# =========================================================================
 class UIFactory:
-    """Factory class for generating standard UI components."""
+    """Factory class for generating standardized UI components."""
 
     @staticmethod
     def create_toolbar_button(
         style: QStyle, icon_enum: QStyle.StandardPixmap, tooltip: str
     ) -> QPushButton:
-        """Creates a standardized toolbar button."""
+        """Create a standardized toolbar button."""
         btn = QPushButton()
         btn.setIcon(style.standardIcon(icon_enum))
         btn.setToolTip(tooltip)
         return btn
 
     @staticmethod
-    def create_param_group(title: str) -> Tuple[QGroupBox, QFormLayout]:
-        """Creates a standardized group box with a form layout."""
+    def create_param_group(title: str) -> tuple[QGroupBox, QFormLayout]:
+        """Create a standardized group box with a form layout."""
         grp = QGroupBox(title)
         grp.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
@@ -84,13 +80,17 @@ class UIFactory:
         return grp, form
 
     @staticmethod
-    def create_spinbox(decimals: int = 3, min_val: float = 0.0, max_val: float = 99999.0) -> QDoubleSpinBox:
-        """Creates a standardized double spinbox for parameter input.
-        
+    def create_spinbox(
+        decimals: int = 3,
+        min_val: float = 0.0,
+        max_val: float = 99999.0,
+    ) -> QDoubleSpinBox:
+        """Create a standardized double spinbox for parameter input.
+
         Args:
-            decimals (int): The number of decimal places to display.
-            min_val (float): Minimum allowed value (prevents physical impossibilities).
-            max_val (float): Maximum allowed value.
+            decimals: Number of decimal places to display.
+            min_val: Minimum allowed value.
+            max_val: Maximum allowed value.
         """
         spin = QDoubleSpinBox()
         spin.setRange(min_val, max_val)
@@ -111,10 +111,10 @@ class UIFactory:
 class ParameterHelpDialog(QDialog):
     """Floating help dialog detailing the UAV parameters and UX guide."""
 
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
-        """Initializes the help dialog and its HTML content."""
+    def __init__(self, parent: QWidget | None = None) -> None:
+        """Initialize the help dialog and its HTML content."""
         super().__init__(parent)
-        self.setWindowTitle("Documentation - UAV Parameters")
+        self.setWindowTitle('Documentation - UAV Parameters')
         self.resize(900, 700)
 
         layout = QVBoxLayout(self)
@@ -123,22 +123,21 @@ class ParameterHelpDialog(QDialog):
         browser = QTextBrowser()
         browser.setOpenExternalLinks(True)
 
-        # Gets the absolute path for local assets (future-proofing for GIFs)
-        assets_dir = current_dir.parent.parent / "assets" / "img"
+        assets_dir = current_dir.parent.parent / 'assets' / 'img'
         assets_path_str = assets_dir.as_posix()
 
         html_content = f"""
         <html>
         <head>
         <style>
-            body {{ 
-                font-family: 'Segoe UI', Arial, sans-serif; 
-                font-size: 14px; 
-                line-height: 1.6; 
-                color: #e0e0e0; 
-                padding: 15px 25px; 
+            body {{
+                font-family: 'Segoe UI', Arial, sans-serif;
+                font-size: 14px;
+                line-height: 1.6;
+                color: #e0e0e0;
+                padding: 15px 25px;
             }}
-            h2 {{ color: #00d4ff; margin-top: 10px; border-bottom: 1px solid #555; 
+            h2 {{ color: #00d4ff; margin-top: 10px; border-bottom: 1px solid #555;
                  padding-bottom: 5px;}}
             h3 {{ color: #4caf50; margin-top: 25px; margin-bottom: 5px; }}
             ul {{ margin-top: 5px; padding-left: 25px; }}
@@ -160,30 +159,38 @@ class ParameterHelpDialog(QDialog):
         </head>
         <body>
         <h2>UAV Configuration & Usage Guide</h2>
-        
+
         <div class="usage-box">
             <b>Quick Start:</b>
             <ul>
-                <li><b>Load Model (Ctrl+O):</b> Loads a previously saved `.json` profile.</li>
-                <li><b>Save Model (Ctrl+S):</b> Saves your current parameters and automatically updates the ROS 2 physical engine (`aircraft_params.yaml`).</li>
+                <li><b>Load Model (Ctrl+O):</b> Loads a previously saved
+                `.json` profile.</li>
+                <li><b>Save Model (Ctrl+S):</b> Saves your current parameters
+                and automatically updates the ROS 2 physical engine
+                (`aircraft_params.yaml`).</li>
                 <li><b>Reset (Ctrl+R):</b> Clears all fields safely.</li>
             </ul>
-            <i>Note: Physical properties like Mass and Inertia are strictly prevented from taking negative values to maintain mathematical stability.</i>
+            <i>Note: Physical properties like Mass and Inertia are strictly
+            prevented from taking negative values to maintain mathematical
+            stability.</i>
         </div>
 
-        <!-- Placeholder for future GIF/Media integration -->
-        <!-- <img class="img-placeholder" src="file:///{assets_path_str}/aircraft_tutorial.gif" alt="Tutorial GIF"> -->
+        <!-- <img class="img-placeholder"
+             src="file:///{assets_path_str}/aircraft_tutorial.gif"
+             alt="Tutorial GIF"> -->
 
         <h2>Dynamic Simulation Parameters Glossary</h2>
-        <p>This section details the physical attributes required to simulate the multirotor's behavior with high fidelity.</p>
-        
+        <p>This section details the physical attributes required to simulate
+        the multirotor's behavior with high fidelity.</p>
+
         <h3>1. Mass and Inertia</h3>
         <ul>
             <li><b>mass:</b> Total drone mass (mB) [kg].</li>
             <li><b>jx:</b> Moment of inertia on the x-axis [kg&middot;m&sup2;].</li>
             <li><b>jy:</b> Moment of inertia on the y-axis [kg&middot;m&sup2;].</li>
             <li><b>jz:</b> Moment of inertia on the z-axis [kg&middot;m&sup2;].</li>
-            <li><b>jxz:</b> Product of inertia in the xz-plane [kg&middot;m&sup2;]. <i>(Can be negative)</i></li>
+            <li><b>jxz:</b> Product of inertia in the xz-plane
+            [kg&middot;m&sup2;]. <i>(Can be negative)</i></li>
         </ul>
 
         <h3>2. Center of Mass Distances</h3>
@@ -193,7 +200,7 @@ class ParameterHelpDialog(QDialog):
             <li><b>dy_bw:</b> Distance from the CM to the rear motor on the y-axis [m].</li>
             <li><b>dz:</b> Distance from the CM to the motor on the z-axis [m].</li>
         </ul>
-        
+
         <h3>3. Propulsion (Motor & Propeller)</h3>
         <ul>
             <li><b>tau (&tau;):</b> Motor time constant (1st order dynamics) [s].</li>
@@ -211,17 +218,20 @@ class ParameterHelpDialog(QDialog):
         <ul>
             <li><b>cd (C<sub>d</sub>):</b> Aerodynamic drag coefficient [dimensionless].</li>
             <li><b>k_t0 (k<sub>T0</sub>):</b> Thrust coefficient constant [N/(rad/s)&sup2;].</li>
-            <li><b>k_q0 (k<sub>Q0</sub>):</b> Torque coefficient constant [N&middot;m/(rad/s)&sup2;].</li>
+            <li><b>k_q0 (k<sub>Q0</sub>):</b> Torque coefficient constant
+            [N&middot;m/(rad/s)&sup2;].</li>
         </ul>
 
         <h3>5. Kinematic Limits (Safety)</h3>
         <ul>
             <li><b>max_horizontal_speed:</b> Maximum horizontal linear speed [m/s].</li>
             <li><b>cruise_speed:</b> Nominal horizontal linear speed [m/s].</li>
-            <li><b>max_ascent_speed:</b> Maximum vertical linear speed during climb [m/s]. <i>(Usually negative in NED frame)</i></li>
+            <li><b>max_ascent_speed:</b> Maximum vertical linear speed during
+            climb [m/s]. <i>(Usually negative in NED frame)</i></li>
             <li><b>max_descent_speed:</b> Maximum vertical linear speed during fall [m/s].</li>
             <li><b>max_tilt_angle:</b> Maximum Pitch/Roll angle [rad].</li>
-            <li><b>max_roll_pitch_rate:</b> Maximum angular velocity rate (Roll/Pitch) [rad/s].</li>
+            <li><b>max_roll_pitch_rate:</b> Maximum angular velocity rate
+            (Roll/Pitch) [rad/s].</li>
             <li><b>max_yaw_rate:</b> Maximum angular velocity rate on the Yaw axis [rad/s].</li>
         </ul>
         </body>
@@ -233,16 +243,17 @@ class ParameterHelpDialog(QDialog):
 
 
 class CustomMessageBox(QDialog):
-    """Custom dialog box replacing QMessageBox for perfect responsiveness."""
+    """Custom dialog box replacing QMessageBox for consistent styling."""
 
     def __init__(
         self,
         title: str,
         main_text: str,
-        detail_text: str = "",
-        msg_type: str = "info",
-        parent: Optional[QWidget] = None,
+        detail_text: str = '',
+        msg_type: str = 'info',
+        parent: QWidget | None = None,
     ) -> None:
+        """Initialize the styled confirmation or notification dialog."""
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setMinimumWidth(450)
@@ -251,12 +262,12 @@ class CustomMessageBox(QDialog):
         )
 
         self.setStyleSheet(
-            "QDialog { background-color: #2b2b2b; }\n"
+            'QDialog { background-color: #2b2b2b; }\n'
             "QLabel { color: #e0e0e0; font-family: 'Segoe UI', Arial, sans-serif; "
-            "font-size: 14px;}\n"
-            "QPushButton { background-color: #0d6efd; color: white; border-radius: 4px; "
-            "padding: 6px 16px; font-weight: bold; min-width: 80px; }\n"
-            "QPushButton:hover { background-color: #0b5ed7; }"
+            'font-size: 14px;}\n'
+            'QPushButton { background-color: #0d6efd; color: white; border-radius: 4px; '
+            'padding: 6px 16px; font-weight: bold; min-width: 80px; }\n'
+            'QPushButton:hover { background-color: #0b5ed7; }'
         )
 
         layout = QVBoxLayout(self)
@@ -270,7 +281,7 @@ class CustomMessageBox(QDialog):
         if detail_text:
             lbl_detail = QLabel(detail_text)
             lbl_detail.setWordWrap(True)
-            lbl_detail.setStyleSheet("color: #a0a0a0; font-size: 13px;")
+            lbl_detail.setStyleSheet('color: #a0a0a0; font-size: 13px;')
             layout.addWidget(lbl_detail)
 
         btn_layout = QHBoxLayout()
@@ -278,64 +289,66 @@ class CustomMessageBox(QDialog):
 
         self.result = QMessageBox.StandardButton.No
 
-        if msg_type == "question":
-            btn_yes = QPushButton("Yes")
+        if msg_type == 'question':
+            btn_yes = QPushButton('Yes')
             btn_yes.clicked.connect(self.accept_yes)
-            btn_no = QPushButton("No")
+            btn_no = QPushButton('No')
             btn_no.clicked.connect(self.reject_no)
             btn_layout.addWidget(btn_yes)
             btn_layout.addWidget(btn_no)
         else:
-            btn_ok = QPushButton("OK")
+            btn_ok = QPushButton('OK')
             btn_ok.clicked.connect(self.accept_ok)
             btn_layout.addWidget(btn_ok)
 
         layout.addLayout(btn_layout)
 
     def accept_yes(self) -> None:
+        """Confirm the dialog with a Yes result."""
         self.result = QMessageBox.StandardButton.Yes
         self.accept()
 
     def reject_no(self) -> None:
+        """Dismiss the dialog with a No result."""
         self.result = QMessageBox.StandardButton.No
         self.reject()
 
     def accept_ok(self) -> None:
+        """Confirm the dialog with an OK result."""
         self.result = QMessageBox.StandardButton.Ok
         self.accept()
 
     def exec(self) -> QMessageBox.StandardButton:
+        """Execute the modal dialog and return the selected standard button."""
         super().exec()
         return self.result
 
 
-# =========================================================================
-# MAIN CLASS
-# =========================================================================
 class TabAircraft(QWidget):
-    """UI Tab for managing UAV model parameters."""
+    """UI tab for managing UAV physical, propulsion, and aerodynamic parameters."""
 
     def __init__(self) -> None:
+        """Initialize the aircraft configuration tab and keyboard shortcuts."""
         super().__init__()
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.aircraft_spins: Dict[str, QDoubleSpinBox] = {}
+        self.aircraft_spins: dict[str, QDoubleSpinBox] = {}
         self._build_ui()
         self._setup_shortcuts()
 
     def _setup_shortcuts(self) -> None:
-        self.shortcut_new = QShortcut(QKeySequence("Ctrl+R"), self)
+        self.shortcut_new = QShortcut(QKeySequence('Ctrl+R'), self)
         self.shortcut_new.setContext(Qt.ShortcutContext.WindowShortcut)
         self.shortcut_new.activated.connect(self._trigger_reset)
 
-        self.shortcut_save = QShortcut(QKeySequence("Ctrl+S"), self)
+        self.shortcut_save = QShortcut(QKeySequence('Ctrl+S'), self)
         self.shortcut_save.setContext(Qt.ShortcutContext.WindowShortcut)
         self.shortcut_save.activated.connect(self._trigger_save)
 
-        self.shortcut_load = QShortcut(QKeySequence("Ctrl+O"), self)
+        self.shortcut_load = QShortcut(QKeySequence('Ctrl+O'), self)
         self.shortcut_load.setContext(Qt.ShortcutContext.WindowShortcut)
         self.shortcut_load.activated.connect(self._trigger_load)
 
-        self.shortcut_help = QShortcut(QKeySequence("F1"), self)
+        self.shortcut_help = QShortcut(QKeySequence('F1'), self)
         self.shortcut_help.setContext(Qt.ShortcutContext.WindowShortcut)
         self.shortcut_help.activated.connect(self._trigger_help)
 
@@ -371,17 +384,17 @@ class TabAircraft(QWidget):
         style = self.style()
 
         btn_new = UIFactory.create_toolbar_button(
-            style, QStyle.StandardPixmap.SP_FileIcon, "New Model (Ctrl+R)"
+            style, QStyle.StandardPixmap.SP_FileIcon, 'New Model (Ctrl+R)'
         )
         btn_new.clicked.connect(self.reset_aircraft)
 
         btn_save = UIFactory.create_toolbar_button(
-            style, QStyle.StandardPixmap.SP_DriveFDIcon, "Save Current Model (Ctrl+S)"
+            style, QStyle.StandardPixmap.SP_DriveFDIcon, 'Save Current Model (Ctrl+S)'
         )
         btn_save.clicked.connect(self.save_aircraft)
 
         btn_load = UIFactory.create_toolbar_button(
-            style, QStyle.StandardPixmap.SP_DirIcon, "Load Saved Model (Ctrl+O)"
+            style, QStyle.StandardPixmap.SP_DirIcon, 'Load Saved Model (Ctrl+O)'
         )
         btn_load.clicked.connect(self.load_aircraft_file)
 
@@ -394,28 +407,28 @@ class TabAircraft(QWidget):
         btn_help = UIFactory.create_toolbar_button(
             style,
             QStyle.StandardPixmap.SP_MessageBoxInformation,
-            "Parameter Details & Guide (F1)",
+            'Parameter Details & Guide (F1)',
         )
         btn_help.clicked.connect(self.show_help_window)
         global_toolbar_layout.addWidget(btn_help)
 
         top_layout.addLayout(global_toolbar_layout)
 
-        grp_id, form_id = UIFactory.create_param_group("Identification")
-        lbl_id = QLabel("Model Name:")
+        grp_id, form_id = UIFactory.create_param_group('Identification')
+        lbl_id = QLabel('Model Name:')
         lbl_id.setMinimumWidth(150)
 
         self.line_aircraft_name = QLineEdit()
-        self.line_aircraft_name.setPlaceholderText("e.g.: DJI Matrice 350 RTK")
+        self.line_aircraft_name.setPlaceholderText('e.g.: DJI Matrice 350 RTK')
         self.line_aircraft_name.setMinimumHeight(28)
         self.line_aircraft_name.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
 
         self.line_aircraft_name.setStyleSheet(
-            "QLineEdit { color: #ffffff; background-color: #2b2b2b; "
-            "border: 1px solid #555555; padding-left: 5px; }\n"
-            "QLineEdit::placeholder { color: #aaaaaa; }"
+            'QLineEdit { color: #ffffff; background-color: #2b2b2b; '
+            'border: 1px solid #555555; padding-left: 5px; }\n'
+            'QLineEdit::placeholder { color: #aaaaaa; }'
         )
 
         form_id.addRow(lbl_id, self.line_aircraft_name)
@@ -424,6 +437,7 @@ class TabAircraft(QWidget):
         return top_layout
 
     def show_help_window(self) -> None:
+        """Open the floating documentation dialog for UAV parameters."""
         self.help_dialog = ParameterHelpDialog(self)
         self.help_dialog.show()
 
@@ -431,65 +445,66 @@ class TabAircraft(QWidget):
         bottom_layout = QHBoxLayout()
         bottom_layout.setSpacing(20)
 
-        # Tuple structure: (Label, Decimals, Min_Value)
         col1_data = [
             (
-                "Mass and Inertia",
+                'Mass and Inertia',
                 {
-                    "mass": ("Mass (kg):", 3, 0.0),
-                    "jx": ("Inertia X (kg·m²):", 3, 0.0),
-                    "jy": ("Inertia Y (kg·m²):", 3, 0.0),
-                    "jz": ("Inertia Z (kg·m²):", 3, 0.0),
-                    "jxz": ("Inertia Product XZ:", 3, -999.0), # Product of inertia can be negative
+                    'mass': ('Mass (kg):', 3, 0.0),
+                    'jx': ('Inertia X (kg·m²):', 3, 0.0),
+                    'jy': ('Inertia Y (kg·m²):', 3, 0.0),
+                    'jz': ('Inertia Z (kg·m²):', 3, 0.0),
+                    # Product of inertia can be negative depending on mass symmetry.
+                    'jxz': ('Inertia Product XZ:', 3, -999.0),
                 },
             ),
             (
-                "Center of Mass Distances",
+                'Center of Mass Distances',
                 {
-                    "dx_arm": ("X-Axis - dx (m):", 3, 0.0),
-                    "dy_fw": ("Y-Axis - Front (m):", 3, 0.0),
-                    "dy_bw": ("Y-Axis - Rear (m):", 3, 0.0),
-                    "dz": ("Z-Axis - dz (m):", 3, 0.0),
+                    'dx_arm': ('X-Axis - dx (m):', 3, 0.0),
+                    'dy_fw': ('Y-Axis - Front (m):', 3, 0.0),
+                    'dy_bw': ('Y-Axis - Rear (m):', 3, 0.0),
+                    'dz': ('Z-Axis - dz (m):', 3, 0.0),
                 },
             ),
         ]
 
         col2_data = [
             (
-                "Propulsion (Motor & Propeller)",
+                'Propulsion (Motor & Propeller)',
                 {
-                    "tau": ("Motor Constant (τ):", 3, 0.0),
-                    "kp": ("Correction Gain (K<sub>p</sub>):", 3, 0.0),
-                    "xi": ("Damping (ξ):", 3, 0.0),
-                    "omega_min": ("Min Rotation (rad/s):", 3, 0.0),
-                    "omega_max": ("Max Rotation (rad/s):", 3, 0.0),
-                    "prop_diameter": ("Prop. Diameter (m):", 4, 0.0),
-                    "c_t0": ("Thrust Coef (C<sub>T0</sub>):", 4, 0.0),
-                    "c_p0": ("Power Coef (C<sub>P0</sub>):", 4, 0.0),
-                    "c_q0": ("Torque Coef (C<sub>Q0</sub>):", 4, 0.0),
+                    'tau': ('Motor Constant (τ):', 3, 0.0),
+                    'kp': ('Correction Gain (K<sub>p</sub>):', 3, 0.0),
+                    'xi': ('Damping (ξ):', 3, 0.0),
+                    'omega_min': ('Min Rotation (rad/s):', 3, 0.0),
+                    'omega_max': ('Max Rotation (rad/s):', 3, 0.0),
+                    'prop_diameter': ('Prop. Diameter (m):', 4, 0.0),
+                    'c_t0': ('Thrust Coef (C<sub>T0</sub>):', 4, 0.0),
+                    'c_p0': ('Power Coef (C<sub>P0</sub>):', 4, 0.0),
+                    'c_q0': ('Torque Coef (C<sub>Q0</sub>):', 4, 0.0),
                 },
             ),
             (
-                "Global Aerodynamics",
+                'Global Aerodynamics',
                 {
-                    "cd": ("Drag Coef (C<sub>d</sub>):", 3, 0.0),
-                    "k_t0": ("Thrust Const (k<sub>T0</sub>):", 8, 0.0),
-                    "k_q0": ("Torque Const (k<sub>Q0</sub>):", 8, 0.0),
+                    'cd': ('Drag Coef (C<sub>d</sub>):', 3, 0.0),
+                    'k_t0': ('Thrust Const (k<sub>T0</sub>):', 8, 0.0),
+                    'k_q0': ('Torque Const (k<sub>Q0</sub>):', 8, 0.0),
                 },
             ),
         ]
 
         col3_data = [
             (
-                "Kinematic Limits (Safety)",
+                'Kinematic Limits (Safety)',
                 {
-                    "max_horizontal_speed": ("Max Horiz. Speed (m/s):", 3, 0.0),
-                    "cruise_speed": ("Cruise Speed (m/s):", 3, 0.0),
-                    "max_ascent_speed": ("Max Ascent Speed (m/s):", 3, -999.0), # Negative in NED
-                    "max_descent_speed": ("Max Descent Speed (m/s):", 3, 0.0),
-                    "max_tilt_angle": ("Max Tilt Angle (rad):", 3, 0.0),
-                    "max_roll_pitch_rate": ("Max Roll/Pitch Rate:", 3, 0.0),
-                    "max_yaw_rate": ("Max Yaw Rate (rad/s):", 3, 0.0),
+                    'max_horizontal_speed': ('Max Horiz. Speed (m/s):', 3, 0.0),
+                    'cruise_speed': ('Cruise Speed (m/s):', 3, 0.0),
+                    # Ascent velocity is negative along the NED Z-down axis.
+                    'max_ascent_speed': ('Max Ascent Speed (m/s):', 3, -999.0),
+                    'max_descent_speed': ('Max Descent Speed (m/s):', 3, 0.0),
+                    'max_tilt_angle': ('Max Tilt Angle (rad):', 3, 0.0),
+                    'max_roll_pitch_rate': ('Max Roll/Pitch Rate:', 3, 0.0),
+                    'max_yaw_rate': ('Max Yaw Rate (rad/s):', 3, 0.0),
                 },
             )
         ]
@@ -501,7 +516,7 @@ class TabAircraft(QWidget):
         return bottom_layout
 
     def _create_column_layout(
-        self, groups_data: List[Tuple[str, Dict[str, Tuple[str, int, float]]]]
+        self, groups_data: list[tuple[str, dict[str, tuple[str, int, float]]]]
     ) -> QVBoxLayout:
         col_layout = QVBoxLayout()
         for title, params in groups_data:
@@ -526,11 +541,12 @@ class TabAircraft(QWidget):
         return col_layout
 
     def reset_aircraft(self) -> None:
+        """Prompt for confirmation and reset all aircraft parameter fields to zero."""
         msg = CustomMessageBox(
-            "New Model",
-            "Do you want to reset all parameters?",
-            "Unsaved data will be lost.",
-            msg_type="question",
+            'New Model',
+            'Do you want to reset all parameters?',
+            'Unsaved data will be lost.',
+            msg_type='question',
             parent=self,
         )
         if msg.exec() == QMessageBox.StandardButton.Yes:
@@ -539,97 +555,103 @@ class TabAircraft(QWidget):
                 spin.setValue(0.0)
 
     def save_aircraft(self) -> None:
+        """Save the current aircraft profile to JSON and update ROS 2 YAML parameters."""
         file_path, _ = QFileDialog.getSaveFileName(
-            self, "Save Aircraft Model", str(AIRCRAFT_MODELS_DIR), "JSON Files (*.json)"
+            self, 'Save Aircraft Model', str(AIRCRAFT_MODELS_DIR), 'JSON Files (*.json)'
         )
         if not file_path:
             return
 
-        if not file_path.endswith(".json"):
-            file_path += ".json"
+        if not file_path.endswith('.json'):
+            file_path += '.json'
 
-        aircraft_data: Dict[str, Any] = {"name": self.line_aircraft_name.text()}
+        aircraft_data: dict[str, Any] = {'name': self.line_aircraft_name.text()}
         for key, spin in self.aircraft_spins.items():
             aircraft_data[key] = spin.value()
 
         try:
-            with open(file_path, "w", encoding="utf-8") as file:
+            with open(file_path, 'w', encoding='utf-8') as file:
                 json.dump(aircraft_data, file, indent=4)
 
             self.export_to_ros_yaml()
 
             msg = CustomMessageBox(
-                "Success",
-                "Model saved successfully!",
-                "JSON saved and ROS 2 YAML updated.",
-                msg_type="success",
+                'Success',
+                'Model saved successfully!',
+                'JSON saved and ROS 2 YAML updated.',
+                msg_type='success',
                 parent=self,
             )
             msg.exec()
         except Exception as err:
             msg = CustomMessageBox(
-                "Save Error", "Could not save the file.", str(err), 
-                msg_type="error", parent=self
+                'Save Error',
+                'Could not save the file.',
+                str(err),
+                msg_type='error',
+                parent=self,
             )
             msg.exec()
 
     def export_to_ros_yaml(self) -> None:
+        """Write current aircraft parameters to the source and install ROS 2 YAML files."""
         ros_data = {
-            "quadcopter_node": {
-                "ros__parameters": {
-                    "mass": self.aircraft_spins["mass"].value(),
-                    "jx": self.aircraft_spins["jx"].value(),
-                    "jy": self.aircraft_spins["jy"].value(),
-                    "jz": self.aircraft_spins["jz"].value(),
-                    "jxz": self.aircraft_spins["jxz"].value(),
-                    "cd": self.aircraft_spins["cd"].value(),
-                    "k_t0": self.aircraft_spins["k_t0"].value(),
-                    "k_q0": self.aircraft_spins["k_q0"].value(),
-                    "tau": self.aircraft_spins["tau"].value(),
-                    "kp": self.aircraft_spins["kp"].value(),
-                    "xi": self.aircraft_spins["xi"].value(),
-                    "dx_arm": self.aircraft_spins["dx_arm"].value(),
-                    "dy_fw": self.aircraft_spins["dy_fw"].value(),
-                    "dy_bw": self.aircraft_spins["dy_bw"].value(),
-                    "omega_min": self.aircraft_spins["omega_min"].value(),
-                    "omega_max": self.aircraft_spins["omega_max"].value(),
+            'quadcopter_node': {
+                'ros__parameters': {
+                    'mass': self.aircraft_spins['mass'].value(),
+                    'jx': self.aircraft_spins['jx'].value(),
+                    'jy': self.aircraft_spins['jy'].value(),
+                    'jz': self.aircraft_spins['jz'].value(),
+                    'jxz': self.aircraft_spins['jxz'].value(),
+                    'cd': self.aircraft_spins['cd'].value(),
+                    'k_t0': self.aircraft_spins['k_t0'].value(),
+                    'k_q0': self.aircraft_spins['k_q0'].value(),
+                    'tau': self.aircraft_spins['tau'].value(),
+                    'kp': self.aircraft_spins['kp'].value(),
+                    'xi': self.aircraft_spins['xi'].value(),
+                    'dx_arm': self.aircraft_spins['dx_arm'].value(),
+                    'dy_fw': self.aircraft_spins['dy_fw'].value(),
+                    'dy_bw': self.aircraft_spins['dy_bw'].value(),
+                    'omega_min': self.aircraft_spins['omega_min'].value(),
+                    'omega_max': self.aircraft_spins['omega_max'].value(),
                 }
             },
-            "controller_node": {
-                "ros__parameters": {
-                    "mass": self.aircraft_spins["mass"].value(),
-                    "max_ascent_speed": self.aircraft_spins["max_ascent_speed"].value(),
-                    "max_descent_speed": self.aircraft_spins["max_descent_speed"].value(),
-                    "cruise_speed": self.aircraft_spins["cruise_speed"].value(),
-                    "max_tilt_angle": self.aircraft_spins["max_tilt_angle"].value(),
-                    "max_roll_pitch_rate": self.aircraft_spins["max_roll_pitch_rate"].value(),
-                    "max_yaw_rate": self.aircraft_spins["max_yaw_rate"].value(),
+            'controller_node': {
+                'ros__parameters': {
+                    'mass': self.aircraft_spins['mass'].value(),
+                    'max_ascent_speed': self.aircraft_spins['max_ascent_speed'].value(),
+                    'max_descent_speed': self.aircraft_spins['max_descent_speed'].value(),
+                    'cruise_speed': self.aircraft_spins['cruise_speed'].value(),
+                    'max_tilt_angle': self.aircraft_spins['max_tilt_angle'].value(),
+                    'max_roll_pitch_rate': self.aircraft_spins['max_roll_pitch_rate'].value(),
+                    'max_yaw_rate': self.aircraft_spins['max_yaw_rate'].value(),
                 }
             },
         }
 
-        yaml_path_src = ROS_CONFIG_DIR / "aircraft_params.yaml"
-        with open(yaml_path_src, "w", encoding="utf-8") as file:
+        yaml_path_src = ROS_CONFIG_DIR / 'aircraft_params.yaml'
+        with open(yaml_path_src, 'w', encoding='utf-8') as file:
             yaml.dump(ros_data, file, default_flow_style=False, sort_keys=False)
 
         if ROS_INSTALL_DIR and ROS_INSTALL_DIR.exists():
-            yaml_path_install = ROS_INSTALL_DIR / "aircraft_params.yaml"
-            with open(yaml_path_install, "w", encoding="utf-8") as file:
+            yaml_path_install = ROS_INSTALL_DIR / 'aircraft_params.yaml'
+            with open(yaml_path_install, 'w', encoding='utf-8') as file:
                 yaml.dump(ros_data, file, default_flow_style=False, sort_keys=False)
 
     def load_aircraft_file(self) -> None:
+        """Load an aircraft parameter profile from a JSON file into the UI fields."""
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "Select Aircraft", str(AIRCRAFT_MODELS_DIR), "JSON Files (*.json)"
+            self, 'Select Aircraft', str(AIRCRAFT_MODELS_DIR), 'JSON Files (*.json)'
         )
         if not file_path:
             return
 
         try:
-            with open(file_path, "r", encoding="utf-8") as file:
+            with open(file_path, 'r', encoding='utf-8') as file:
                 data = json.load(file)
 
-            if "name" in data:
-                self.line_aircraft_name.setText(data["name"])
+            if 'name' in data:
+                self.line_aircraft_name.setText(data['name'])
             else:
                 self.line_aircraft_name.clear()
 
@@ -639,17 +661,20 @@ class TabAircraft(QWidget):
 
             filename = os.path.basename(file_path)
             msg = CustomMessageBox(
-                "Success",
-                "Parameters loaded!",
+                'Success',
+                'Parameters loaded!',
                 f"Model '{filename}' loaded successfully.",
-                msg_type="success",
+                msg_type='success',
                 parent=self,
             )
             msg.exec()
 
         except Exception as err:
             msg = CustomMessageBox(
-                "Load Error", "Could not load the parameters.", str(err), 
-                msg_type="error", parent=self
+                'Load Error',
+                'Could not load the parameters.',
+                str(err),
+                msg_type='error',
+                parent=self,
             )
             msg.exec()
