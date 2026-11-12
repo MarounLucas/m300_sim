@@ -20,6 +20,11 @@ bags/
 data/
 config/
 
-# VS Code
+# VS Code & AI Agents
 .vscode/
+.agents/
+AGENTS.md
+.pre-commit-config.yaml
+ruff.toml
+docs/
 scripts/pytorch/

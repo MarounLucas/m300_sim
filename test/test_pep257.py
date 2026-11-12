@@ -12,12 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""PEP 257 docstring style compliance test for m300_sim."""
+
 from ament_pep257.main import main
 import pytest
 
 
 @pytest.mark.linter
 @pytest.mark.pep257
-def test_pep257():
+def test_pep257() -> None:
+    """Verify that all package docstrings conform to PEP 257 conventions."""
     rc = main(argv=['.', 'test'])
     assert rc == 0, 'Found code style errors / warnings'
